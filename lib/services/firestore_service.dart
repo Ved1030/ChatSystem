@@ -22,15 +22,6 @@ class FirestoreService {
     );
   }
 
-  Stream<List<UserModel>> allUsersExcept(String currentUid) {
-    return _users.snapshots().map((snapshot) {
-      return snapshot.docs
-          .map((doc) => UserModel.fromMap(doc.data() as Map<String, dynamic>))
-          .where((user) => user.uid != currentUid)
-          .toList();
-    });
-  }
-
   Future<List<UserModel>> searchUsers(String query) async {
     if (query.isEmpty) return [];
     final snapshot = await _users
@@ -70,6 +61,29 @@ class FirestoreService {
     return UserModel.fromMap(snapshot.data() as Map<String, dynamic>);
   }
 
+  Future<List<UserModel>> getUsersByIds(List<String> uids) async {
+    if (uids.isEmpty) return [];
+    final snapshot = await _users
+        .where(FieldPath.documentId, whereIn: uids)
+        .get();
+    return snapshot.docs
+        .map((doc) => UserModel.fromMap(doc.data() as Map<String, dynamic>))
+        .toList();
+  }
+
+  Stream<List<ChatRoomModel>> chatRoomsStream(String currentUid) {
+    return _chatRooms
+        .where(FirebaseConstants.participants, arrayContains: currentUid)
+        .orderBy(FirebaseConstants.lastMessageTime, descending: true)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs
+          .map((doc) => ChatRoomModel.fromMap(doc.data() as Map<String, dynamic>, doc.id))
+          .where((room) => !room.deletedForUsers.contains(currentUid))
+          .toList();
+    });
+  }
+
   String getChatRoomId(String uid1, String uid2) {
     final ids = [uid1, uid2]..sort();
     return '${ids[0]}_${ids[1]}';
@@ -91,14 +105,26 @@ class FirestoreService {
     return ChatRoomModel.fromMap(doc.data() as Map<String, dynamic>, chatRoomId);
   }
 
-  Stream<List<MessageModel>> messagesStream(String chatRoomId) {
-    return messagesRef(chatRoomId)
-        .orderBy(FirebaseConstants.timestamp, descending: false)
-        .snapshots()
-        .map((snapshot) {
-      return snapshot.docs.map((doc) {
+  Stream<List<MessageModel>> messagesStream(String chatRoomId, String currentUid, {DateTime? clearedAt}) {
+    var query = messagesRef(chatRoomId)
+        .orderBy(FirebaseConstants.timestamp, descending: false);
+
+    return query.snapshots().map((snapshot) {
+      var messages = snapshot.docs.map((doc) {
         return MessageModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
       }).toList();
+
+      messages = messages.where((msg) {
+        return !msg.deletedForUsers.contains(currentUid);
+      }).toList();
+
+      if (clearedAt != null) {
+        messages = messages.where((msg) {
+          return msg.timestamp.isAfter(clearedAt);
+        }).toList();
+      }
+
+      return messages;
     });
   }
 
@@ -121,6 +147,57 @@ class FirestoreService {
       FirebaseConstants.lastMessage: text,
       FirebaseConstants.lastMessageTime: FieldValue.serverTimestamp(),
     });
+  }
+
+  Future<void> deleteMessageForEveryone(String chatRoomId, String messageId) async {
+    await messagesRef(chatRoomId).doc(messageId).update({
+      FirebaseConstants.isDeleted: true,
+      FirebaseConstants.deletedAt: FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> deleteMessageForMe(String chatRoomId, String messageId, String currentUid) async {
+    await messagesRef(chatRoomId).doc(messageId).update({
+      FirebaseConstants.deletedForUsers: FieldValue.arrayUnion([currentUid]),
+    });
+  }
+
+  Future<void> deleteChatForMe(String chatRoomId, String currentUid) async {
+    await chatRoomDoc(chatRoomId).update({
+      FirebaseConstants.deletedForUsers: FieldValue.arrayUnion([currentUid]),
+    });
+  }
+
+  Future<void> clearChat(String chatRoomId, String currentUid) async {
+    await chatRoomDoc(chatRoomId).update({
+      FirebaseConstants.clearedAt: FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> blockUser(String currentUid, String blockedUid) async {
+    await userDoc(currentUid).update({
+      FirebaseConstants.blockedUsers: FieldValue.arrayUnion([blockedUid]),
+    });
+  }
+
+  Future<void> unblockUser(String currentUid, String blockedUid) async {
+    await userDoc(currentUid).update({
+      FirebaseConstants.blockedUsers: FieldValue.arrayRemove([blockedUid]),
+    });
+  }
+
+  Future<bool> isBlocked(String uid1, String uid2) async {
+    final user1Doc = await userDoc(uid1).get();
+    final user1Data = user1Doc.data() as Map<String, dynamic>?;
+    final blockedByUser1 = List<String>.from(user1Data?['blockedUsers'] as List? ?? []);
+    if (blockedByUser1.contains(uid2)) return true;
+
+    final user2Doc = await userDoc(uid2).get();
+    final user2Data = user2Doc.data() as Map<String, dynamic>?;
+    final blockedByUser2 = List<String>.from(user2Data?['blockedUsers'] as List? ?? []);
+    if (blockedByUser2.contains(uid1)) return true;
+
+    return false;
   }
 
   Future<void> updateOnlineStatus(String uid, bool isOnline) async {

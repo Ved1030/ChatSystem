@@ -11,8 +11,11 @@ class ChatRepository {
   Future<ChatRoomModel> getOrCreateChatRoom(String currentUid, String otherUid) =>
       _firestoreService.getOrCreateChatRoom(currentUid, otherUid);
 
-  Stream<List<MessageModel>> messagesStream(String chatRoomId) =>
-      _firestoreService.messagesStream(chatRoomId);
+  Stream<List<ChatRoomModel>> chatRoomsStream(String currentUid) =>
+      _firestoreService.chatRoomsStream(currentUid);
+
+  Stream<List<MessageModel>> messagesStream(String chatRoomId, String currentUid, {DateTime? clearedAt}) =>
+      _firestoreService.messagesStream(chatRoomId, currentUid, clearedAt: clearedAt);
 
   Future<void> sendMessage({
     required String chatRoomId,
@@ -26,4 +29,19 @@ class ChatRepository {
         receiverId: receiverId,
         text: text,
       );
+
+  Future<void> deleteMessageForEveryone(String chatRoomId, String messageId) =>
+      _firestoreService.deleteMessageForEveryone(chatRoomId, messageId);
+
+  Future<void> deleteMessageForMe(String chatRoomId, String messageId, String currentUid) =>
+      _firestoreService.deleteMessageForMe(chatRoomId, messageId, currentUid);
+
+  Future<void> deleteChatForMe(String chatRoomId, String currentUid) =>
+      _firestoreService.deleteChatForMe(chatRoomId, currentUid);
+
+  Future<void> clearChat(String chatRoomId, String currentUid) =>
+      _firestoreService.clearChat(chatRoomId, currentUid);
+
+  Future<bool> isBlocked(String uid1, String uid2) =>
+      _firestoreService.isBlocked(uid1, uid2);
 }

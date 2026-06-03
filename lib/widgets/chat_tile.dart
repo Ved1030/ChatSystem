@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../core/utils/date_formatter.dart';
 import '../models/user_model.dart';
-import 'online_status.dart';
 import 'profile_avatar.dart';
 
 class ChatTile extends StatelessWidget {

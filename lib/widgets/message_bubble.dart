@@ -6,12 +6,14 @@ class MessageBubble extends StatelessWidget {
   final String message;
   final bool isMe;
   final DateTime timestamp;
+  final bool isDeleted;
 
   const MessageBubble({
     super.key,
     required this.message,
     required this.isMe,
     required this.timestamp,
+    this.isDeleted = false,
   });
 
   @override
@@ -28,7 +30,9 @@ class MessageBubble extends StatelessWidget {
           maxWidth: MediaQuery.of(context).size.width * 0.75,
         ),
         decoration: BoxDecoration(
-          color: isMe ? Colors.green : Colors.white,
+          color: isDeleted
+              ? (isMe ? Colors.green.shade300 : Colors.grey.shade200)
+              : (isMe ? Colors.green : Colors.white),
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(18),
             topRight: const Radius.circular(18),
@@ -41,7 +45,7 @@ class MessageBubble extends StatelessWidget {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 4,
               offset: const Offset(0, 2),
             ),
@@ -51,10 +55,13 @@ class MessageBubble extends StatelessWidget {
           crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
             Text(
-              message,
+              isDeleted ? 'This message was deleted' : message,
               style: TextStyle(
-                color: isMe ? Colors.white : Colors.black87,
+                color: isDeleted
+                    ? (isMe ? Colors.white70 : Colors.grey.shade500)
+                    : (isMe ? Colors.white : Colors.black87),
                 fontSize: 15,
+                fontStyle: isDeleted ? FontStyle.italic : FontStyle.normal,
               ),
             ),
             const SizedBox(height: 4),

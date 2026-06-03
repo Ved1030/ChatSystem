@@ -5,7 +5,6 @@ import '../../providers/auth_provider.dart';
 import '../../widgets/online_status.dart';
 import '../../widgets/profile_avatar.dart';
 import '../auth/login_screen.dart';
-import '../home/home_screen.dart';
 import '../settings/settings_screen.dart';
 import 'edit_profile_screen.dart';
 
@@ -219,7 +218,7 @@ class ProfileScreen extends StatelessWidget {
         borderRadius: BorderRadius.circular(18),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),

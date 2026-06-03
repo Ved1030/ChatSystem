@@ -9,6 +9,7 @@ class UserModel {
   final DateTime? createdAt;
   final DateTime? lastSeen;
   final bool isOnline;
+  final List<String> blockedUsers;
 
   const UserModel({
     required this.uid,
@@ -19,6 +20,7 @@ class UserModel {
     this.createdAt,
     this.lastSeen,
     this.isOnline = false,
+    this.blockedUsers = const [],
   });
 
   factory UserModel.fromMap(Map<String, dynamic> map) {
@@ -31,6 +33,7 @@ class UserModel {
       createdAt: (map['createdAt'] as Timestamp?)?.toDate(),
       lastSeen: (map['lastSeen'] as Timestamp?)?.toDate(),
       isOnline: map['isOnline'] as bool? ?? false,
+      blockedUsers: List<String>.from(map['blockedUsers'] as List? ?? []),
     );
   }
 
@@ -44,6 +47,7 @@ class UserModel {
       'createdAt': createdAt ?? FieldValue.serverTimestamp(),
       'lastSeen': lastSeen ?? FieldValue.serverTimestamp(),
       'isOnline': isOnline,
+      'blockedUsers': blockedUsers,
     };
   }
 
@@ -66,6 +70,7 @@ class UserModel {
     DateTime? createdAt,
     DateTime? lastSeen,
     bool? isOnline,
+    List<String>? blockedUsers,
   }) {
     return UserModel(
       uid: uid ?? this.uid,
@@ -76,6 +81,7 @@ class UserModel {
       createdAt: createdAt ?? this.createdAt,
       lastSeen: lastSeen ?? this.lastSeen,
       isOnline: isOnline ?? this.isOnline,
+      blockedUsers: blockedUsers ?? this.blockedUsers,
     );
   }
 }

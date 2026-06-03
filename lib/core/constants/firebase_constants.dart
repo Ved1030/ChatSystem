@@ -18,4 +18,9 @@ class FirebaseConstants {
   static const String receiverId = 'receiverId';
   static const String text = 'text';
   static const String timestamp = 'timestamp';
+  static const String isDeleted = 'isDeleted';
+  static const String deletedAt = 'deletedAt';
+  static const String deletedForUsers = 'deletedForUsers';
+  static const String clearedAt = 'clearedAt';
+  static const String blockedUsers = 'blockedUsers';
 }

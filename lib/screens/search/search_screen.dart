@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../models/user_model.dart';
@@ -17,12 +18,29 @@ class _SearchScreenState extends State<SearchScreen> {
   final UserRepository _userRepository = UserRepository();
 
   List<UserModel> _results = [];
+  List<String> _blockedUsers = [];
   bool _isSearching = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBlockedUsers();
+  }
 
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadBlockedUsers() async {
+    final currentUid = FirebaseAuth.instance.currentUser!.uid;
+    final currentUser = await _userRepository.getUser(currentUid);
+    if (mounted) {
+      setState(() {
+        _blockedUsers = currentUser?.blockedUsers ?? [];
+      });
+    }
   }
 
   Future<void> _search(String query) async {
@@ -40,8 +58,10 @@ class _SearchScreenState extends State<SearchScreen> {
 
     if (!mounted) return;
 
+    final filtered = results.where((u) => !_blockedUsers.contains(u.uid)).toList();
+
     setState(() {
-      _results = results;
+      _results = filtered;
       _isSearching = false;
     });
   }

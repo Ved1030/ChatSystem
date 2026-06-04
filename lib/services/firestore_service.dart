@@ -1,20 +1,32 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../core/constants/firebase_constants.dart';
+import '../models/album_model.dart';
 import '../models/chat_model.dart';
 import '../models/message_model.dart';
+import '../models/plan_model.dart';
 import '../models/user_model.dart';
 
 class FirestoreService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  CollectionReference get _users => _firestore.collection(FirebaseConstants.usersCollection);
-  CollectionReference get _chatRooms => _firestore.collection(FirebaseConstants.chatRoomsCollection);
+  CollectionReference get _users =>
+      _firestore.collection(FirebaseConstants.usersCollection);
+  CollectionReference get _chatRooms =>
+      _firestore.collection(FirebaseConstants.chatRoomsCollection);
+  CollectionReference get _albums =>
+      _firestore.collection(FirebaseConstants.albumsCollection);
+  CollectionReference get _plans =>
+      _firestore.collection(FirebaseConstants.plansCollection);
 
   DocumentReference userDoc(String uid) => _users.doc(uid);
   DocumentReference chatRoomDoc(String id) => _chatRooms.doc(id);
-  CollectionReference messagesRef(String chatRoomId) =>
-      _chatRooms.doc(chatRoomId).collection(FirebaseConstants.messagesCollection);
+  DocumentReference albumDoc(String id) => _albums.doc(id);
+  CollectionReference messagesRef(String chatRoomId) => _chatRooms
+      .doc(chatRoomId)
+      .collection(FirebaseConstants.messagesCollection);
+  CollectionReference albumPhotosRef(String albumId) =>
+      _albums.doc(albumId).collection(FirebaseConstants.albumPhotosCollection);
 
   Stream<UserModel> userStream(String uid) {
     return userDoc(uid).snapshots().map(
@@ -77,11 +89,16 @@ class FirestoreService {
         .orderBy(FirebaseConstants.lastMessageTime, descending: true)
         .snapshots()
         .map((snapshot) {
-      return snapshot.docs
-          .map((doc) => ChatRoomModel.fromMap(doc.data() as Map<String, dynamic>, doc.id))
-          .where((room) => !room.deletedForUsers.contains(currentUid))
-          .toList();
-    });
+          return snapshot.docs
+              .map(
+                (doc) => ChatRoomModel.fromMap(
+                  doc.data() as Map<String, dynamic>,
+                  doc.id,
+                ),
+              )
+              .where((room) => !room.deletedForUsers.contains(currentUid))
+              .toList();
+        });
   }
 
   String getChatRoomId(String uid1, String uid2) {
@@ -89,7 +106,10 @@ class FirestoreService {
     return '${ids[0]}_${ids[1]}';
   }
 
-  Future<ChatRoomModel> getOrCreateChatRoom(String currentUid, String otherUid) async {
+  Future<ChatRoomModel> getOrCreateChatRoom(
+    String currentUid,
+    String otherUid,
+  ) async {
     final chatRoomId = getChatRoomId(currentUid, otherUid);
     final doc = await chatRoomDoc(chatRoomId).get();
 
@@ -102,12 +122,20 @@ class FirestoreService {
       return room;
     }
 
-    return ChatRoomModel.fromMap(doc.data() as Map<String, dynamic>, chatRoomId);
+    return ChatRoomModel.fromMap(
+      doc.data() as Map<String, dynamic>,
+      chatRoomId,
+    );
   }
 
-  Stream<List<MessageModel>> messagesStream(String chatRoomId, String currentUid, {DateTime? clearedAt}) {
-    var query = messagesRef(chatRoomId)
-        .orderBy(FirebaseConstants.timestamp, descending: false);
+  Stream<List<MessageModel>> messagesStream(
+    String chatRoomId,
+    String currentUid, {
+    DateTime? clearedAt,
+  }) {
+    var query = messagesRef(
+      chatRoomId,
+    ).orderBy(FirebaseConstants.timestamp, descending: false);
 
     return query.snapshots().map((snapshot) {
       var messages = snapshot.docs.map((doc) {
@@ -147,16 +175,25 @@ class FirestoreService {
       FirebaseConstants.lastMessage: text,
       FirebaseConstants.lastMessageTime: FieldValue.serverTimestamp(),
     });
+
+    await incrementUnreadCount(chatRoomId, receiverId);
   }
 
-  Future<void> deleteMessageForEveryone(String chatRoomId, String messageId) async {
+  Future<void> deleteMessageForEveryone(
+    String chatRoomId,
+    String messageId,
+  ) async {
     await messagesRef(chatRoomId).doc(messageId).update({
       FirebaseConstants.isDeleted: true,
       FirebaseConstants.deletedAt: FieldValue.serverTimestamp(),
     });
   }
 
-  Future<void> deleteMessageForMe(String chatRoomId, String messageId, String currentUid) async {
+  Future<void> deleteMessageForMe(
+    String chatRoomId,
+    String messageId,
+    String currentUid,
+  ) async {
     await messagesRef(chatRoomId).doc(messageId).update({
       FirebaseConstants.deletedForUsers: FieldValue.arrayUnion([currentUid]),
     });
@@ -169,9 +206,9 @@ class FirestoreService {
   }
 
   Future<void> clearChat(String chatRoomId, String currentUid) async {
-    await chatRoomDoc(chatRoomId).update({
-      FirebaseConstants.clearedAt: FieldValue.serverTimestamp(),
-    });
+    await chatRoomDoc(
+      chatRoomId,
+    ).update({FirebaseConstants.clearedAt: FieldValue.serverTimestamp()});
   }
 
   Future<void> blockUser(String currentUid, String blockedUid) async {
@@ -189,12 +226,16 @@ class FirestoreService {
   Future<bool> isBlocked(String uid1, String uid2) async {
     final user1Doc = await userDoc(uid1).get();
     final user1Data = user1Doc.data() as Map<String, dynamic>?;
-    final blockedByUser1 = List<String>.from(user1Data?['blockedUsers'] as List? ?? []);
+    final blockedByUser1 = List<String>.from(
+      user1Data?['blockedUsers'] as List? ?? [],
+    );
     if (blockedByUser1.contains(uid2)) return true;
 
     final user2Doc = await userDoc(uid2).get();
     final user2Data = user2Doc.data() as Map<String, dynamic>?;
-    final blockedByUser2 = List<String>.from(user2Data?['blockedUsers'] as List? ?? []);
+    final blockedByUser2 = List<String>.from(
+      user2Data?['blockedUsers'] as List? ?? [],
+    );
     if (blockedByUser2.contains(uid1)) return true;
 
     return false;
@@ -205,5 +246,191 @@ class FirestoreService {
       FirebaseConstants.isOnline: isOnline,
       FirebaseConstants.lastSeen: FieldValue.serverTimestamp(),
     });
+  }
+
+  Stream<List<AlbumModel>> albumsStream(String currentUid) {
+    return _albums
+        .where(FirebaseConstants.participants, arrayContains: currentUid)
+        .orderBy(FirebaseConstants.createdAt, descending: true)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs
+              .map(
+                (doc) => AlbumModel.fromMap(
+                  doc.data() as Map<String, dynamic>,
+                  doc.id,
+                ),
+              )
+              .toList();
+        });
+  }
+
+  Future<String> addAlbum(AlbumModel album) async {
+    final docRef = await _albums.add(album.toMap());
+    return docRef.id;
+  }
+
+  Future<void> updateAlbum(String albumId, Map<String, dynamic> data) async {
+    await albumDoc(albumId).update(data);
+  }
+
+  Future<void> deleteAlbum(String albumId) async {
+    await albumDoc(albumId).delete();
+  }
+
+  Stream<List<AlbumPhotoModel>> albumPhotosStream(String albumId) {
+    return albumPhotosRef(
+      albumId,
+    ).orderBy(FirebaseConstants.createdAt, descending: false).snapshots().map((
+      snapshot,
+    ) {
+      return snapshot.docs
+          .map(
+            (doc) => AlbumPhotoModel.fromMap(
+              doc.data() as Map<String, dynamic>,
+              doc.id,
+            ),
+          )
+          .toList();
+    });
+  }
+
+  Future<void> addAlbumPhoto(String albumId, AlbumPhotoModel photo) async {
+    await albumPhotosRef(albumId).add(photo.toMap());
+    await albumDoc(
+      albumId,
+    ).update({FirebaseConstants.photoCount: FieldValue.increment(1)});
+  }
+
+  Future<void> deleteAlbumPhoto(String albumId, String photoId) async {
+    await albumPhotosRef(albumId).doc(photoId).delete();
+    await albumDoc(
+      albumId,
+    ).update({FirebaseConstants.photoCount: FieldValue.increment(-1)});
+  }
+
+  Stream<List<PlanModel>> plansStream(String currentUid) {
+    return _plans
+        .where(FirebaseConstants.participants, arrayContains: currentUid)
+        .orderBy(FirebaseConstants.createdAt, descending: true)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs
+              .map(
+                (doc) => PlanModel.fromMap(
+                  doc.data() as Map<String, dynamic>,
+                  doc.id,
+                ),
+              )
+              .toList();
+        });
+  }
+
+  Future<void> addPlan(PlanModel plan) async {
+    await _plans.add(plan.toMap());
+  }
+
+  Future<void> updatePlan(String planId, Map<String, dynamic> data) async {
+    await _plans.doc(planId).update(data);
+  }
+
+  Future<void> deletePlan(String planId) async {
+    await _plans.doc(planId).delete();
+  }
+
+  Future<void> updateMessageStatus(
+    String chatRoomId,
+    String messageId,
+    String status,
+  ) async {
+    final data = <String, dynamic>{'status': status};
+    if (status == 'read') {
+      data['readAt'] = FieldValue.serverTimestamp();
+    }
+    await messagesRef(chatRoomId).doc(messageId).update(data);
+  }
+
+  Future<void> markAllMessagesAsRead(
+    String chatRoomId,
+    String currentUid,
+    String otherUid,
+  ) async {
+    final unread = await messagesRef(chatRoomId)
+        .where(FirebaseConstants.senderId, isEqualTo: otherUid)
+        .where('status', isNotEqualTo: 'read')
+        .get();
+
+    final batch = _firestore.batch();
+    for (final doc in unread.docs) {
+      batch.update(doc.reference, {
+        'status': 'read',
+        'readAt': FieldValue.serverTimestamp(),
+      });
+    }
+    await batch.commit();
+
+    await chatRoomDoc(
+      chatRoomId,
+    ).update({'${FirebaseConstants.unreadCounts}.$currentUid': 0});
+  }
+
+  Stream<List<String>> chatMediaStream(String chatRoomId) {
+    return messagesRef(chatRoomId)
+        .orderBy(FirebaseConstants.timestamp, descending: true)
+        .snapshots()
+        .map((snapshot) {
+          final urls = <String>[];
+          for (final doc in snapshot.docs) {
+            final data = doc.data() as Map<String, dynamic>;
+            final text = data['text'] as String? ?? '';
+            if (_isImageUrl(text) && !urls.contains(text)) {
+              urls.add(text);
+            }
+          }
+          return urls;
+        });
+  }
+
+  bool _isImageUrl(String url) {
+    final lower = url.toLowerCase();
+    return lower.startsWith('http') &&
+        (lower.endsWith('.jpg') ||
+            lower.endsWith('.jpeg') ||
+            lower.endsWith('.png') ||
+            lower.endsWith('.gif') ||
+            lower.endsWith('.webp') ||
+            lower.endsWith('.bmp') ||
+            lower.contains('firebasestorage.googleapis.com'));
+  }
+
+  Future<ChatRoomModel?> getChatRoom(String chatRoomId) async {
+    final doc = await chatRoomDoc(chatRoomId).get();
+    if (!doc.exists) return null;
+    return ChatRoomModel.fromMap(
+      doc.data() as Map<String, dynamic>,
+      chatRoomId,
+    );
+  }
+
+  Future<void> updateChatRoom(
+    String chatRoomId,
+    Map<String, dynamic> data,
+  ) async {
+    await chatRoomDoc(chatRoomId).update(data);
+  }
+
+  Future<void> incrementUnreadCount(
+    String chatRoomId,
+    String receiverUid,
+  ) async {
+    await chatRoomDoc(chatRoomId).update({
+      '${FirebaseConstants.unreadCounts}.$receiverUid': FieldValue.increment(1),
+    });
+  }
+
+  Future<void> resetUnreadCount(String chatRoomId, String currentUid) async {
+    await chatRoomDoc(
+      chatRoomId,
+    ).update({'${FirebaseConstants.unreadCounts}.$currentUid': 0});
   }
 }

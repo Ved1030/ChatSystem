@@ -124,10 +124,7 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> login({
-    required String email,
-    required String password,
-  }) async {
+  Future<void> login({required String email, required String password}) async {
     _isLoading = true;
     _error = null;
     notifyListeners();
@@ -238,6 +235,12 @@ class AuthProvider extends ChangeNotifier {
   void clearError() {
     _error = null;
     notifyListeners();
+  }
+
+  Future<void> updateOnlineStatus(bool isOnline) async {
+    if (_user != null) {
+      await _userRepository.updateOnlineStatus(_user!.uid, isOnline);
+    }
   }
 
   @override

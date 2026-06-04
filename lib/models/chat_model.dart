@@ -7,6 +7,10 @@ class ChatRoomModel {
   final DateTime? lastMessageTime;
   final List<String> deletedForUsers;
   final DateTime? clearedAt;
+  final Map<String, int> unreadCounts;
+  final String? wallpaper;
+  final Map<String, String> nicknames;
+  final List<String> mutedBy;
 
   const ChatRoomModel({
     required this.id,
@@ -15,9 +19,20 @@ class ChatRoomModel {
     this.lastMessageTime,
     this.deletedForUsers = const [],
     this.clearedAt,
+    this.unreadCounts = const {},
+    this.wallpaper,
+    this.nicknames = const {},
+    this.mutedBy = const [],
   });
 
   factory ChatRoomModel.fromMap(Map<String, dynamic> map, String id) {
+    final raw = map['unreadCounts'] as Map<String, dynamic>?;
+    final unread =
+        raw?.map((k, v) => MapEntry(k, (v as num).toInt())) ?? <String, int>{};
+    final rawNicknames = map['nicknames'] as Map<String, dynamic>?;
+    final nicknames =
+        rawNicknames?.map((k, v) => MapEntry(k, v as String)) ??
+        <String, String>{};
     return ChatRoomModel(
       id: id,
       participants: List<String>.from(map['participants'] as List? ?? []),
@@ -25,6 +40,10 @@ class ChatRoomModel {
       lastMessageTime: (map['lastMessageTime'] as Timestamp?)?.toDate(),
       deletedForUsers: List<String>.from(map['deletedForUsers'] as List? ?? []),
       clearedAt: (map['clearedAt'] as Timestamp?)?.toDate(),
+      unreadCounts: unread,
+      wallpaper: map['wallpaper'] as String?,
+      nicknames: nicknames,
+      mutedBy: List<String>.from(map['mutedBy'] as List? ?? []),
     );
   }
 
@@ -32,10 +51,17 @@ class ChatRoomModel {
     return {
       'participants': participants,
       'lastMessage': lastMessage,
-      'lastMessageTime':
-          lastMessageTime != null ? Timestamp.fromDate(lastMessageTime!) : null,
+      'lastMessageTime': lastMessageTime != null
+          ? Timestamp.fromDate(lastMessageTime!)
+          : null,
       'deletedForUsers': deletedForUsers,
       'clearedAt': clearedAt != null ? Timestamp.fromDate(clearedAt!) : null,
+      'unreadCounts': unreadCounts,
+      'wallpaper': wallpaper,
+      'nicknames': nicknames,
+      'mutedBy': mutedBy,
     };
   }
+
+  String? nicknameFor(String uid) => nicknames[uid];
 }

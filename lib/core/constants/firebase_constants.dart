@@ -2,6 +2,9 @@ class FirebaseConstants {
   static const String usersCollection = 'users';
   static const String chatRoomsCollection = 'chat_rooms';
   static const String messagesCollection = 'messages';
+  static const String albumsCollection = 'albums';
+  static const String albumPhotosCollection = 'photos';
+  static const String plansCollection = 'plans';
 
   static const String uid = 'uid';
   static const String name = 'name';
@@ -23,4 +26,23 @@ class FirebaseConstants {
   static const String deletedForUsers = 'deletedForUsers';
   static const String clearedAt = 'clearedAt';
   static const String blockedUsers = 'blockedUsers';
+  static const String creatorId = 'creatorId';
+  static const String coverUrl = 'coverUrl';
+  static const String imageUrl = 'imageUrl';
+  static const String title = 'title';
+  static const String description = 'description';
+  static const String date = 'date';
+  static const String location = 'location';
+  static const String isRead = 'isRead';
+  static const String isDelivered = 'isDelivered';
+  static const String readAt = 'readAt';
+  static const String unreadCounts = 'unreadCounts';
+  static const String isPrivate = 'isPrivate';
+  static const String pin = 'pin';
+  static const String photoCount = 'photoCount';
+  static const String category = 'category';
+  static const String status = 'status';
+  static const String deadline = 'deadline';
+  static const String wallpaper = 'wallpaper';
+  static const String nicknames = 'nicknames';
 }

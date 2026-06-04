@@ -1,48 +1,65 @@
+import 'package:intl/intl.dart';
+
 class DateFormatter {
-  static String formatTime(DateTime dateTime) {
-    final hour = dateTime.hour.toString().padLeft(2, '0');
-    final minute = dateTime.minute.toString().padLeft(2, '0');
-    return '$hour:$minute';
+  static String formatTime(DateTime date) {
+    return DateFormat('h:mm a').format(date);
   }
 
-  static String formatLastSeen(DateTime? lastSeen) {
-    if (lastSeen == null) return 'Offline';
-
+  static String formatChatListTime(DateTime? date) {
+    if (date == null) return '';
     final now = DateTime.now();
-    final difference = now.difference(lastSeen);
+    final diff = now.difference(date);
 
-    if (difference.inMinutes < 1) {
-      return 'just now';
-    } else if (difference.inHours < 1) {
-      return '${difference.inMinutes}m ago';
-    } else if (difference.inDays < 1) {
-      return '${difference.inHours}h ago';
-    } else if (difference.inDays < 7) {
-      return '${difference.inDays}d ago';
-    } else {
-      return '${lastSeen.day}/${lastSeen.month}/${lastSeen.year}';
-    }
-  }
-
-  static String formatMessageTime(DateTime dateTime) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final messageDate = DateTime(dateTime.year, dateTime.month, dateTime.day);
-
-    if (messageDate == today) {
-      return formatTime(dateTime);
-    } else if (messageDate == today.subtract(const Duration(days: 1))) {
+    if (diff.inDays == 0) {
+      return DateFormat('h:mm a').format(date);
+    } else if (diff.inDays == 1) {
       return 'Yesterday';
-    } else if (messageDate.isAfter(today.subtract(const Duration(days: 7)))) {
-      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-      return days[dateTime.weekday - 1];
+    } else if (diff.inDays < 7) {
+      return DateFormat('EEE').format(date);
     } else {
-      return '${dateTime.day}/${dateTime.month}/${dateTime.year}';
+      return DateFormat('M/d/yy').format(date);
     }
   }
 
-  static String formatChatListTime(DateTime? dateTime) {
-    if (dateTime == null) return '';
-    return formatMessageTime(dateTime);
+  static String formatLastSeen(DateTime date) {
+    final now = DateTime.now();
+    final diff = now.difference(date);
+
+    if (diff.inSeconds < 60) {
+      return 'just now';
+    } else if (diff.inMinutes < 60) {
+      final m = diff.inMinutes;
+      return '$m ${m == 1 ? 'min' : 'mins'} ago';
+    } else if (diff.inHours < 24) {
+      final h = diff.inHours;
+      return '$h ${h == 1 ? 'hour' : 'hours'} ago';
+    } else if (diff.inDays < 7) {
+      final d = diff.inDays;
+      return '$d ${d == 1 ? 'day' : 'days'} ago';
+    } else {
+      return DateFormat('M/d/yy').format(date);
+    }
+  }
+
+  static String formatDate(DateTime date) {
+    return DateFormat('MMM d, yyyy').format(date);
+  }
+
+  static String formatSeenTime(DateTime date) {
+    final now = DateTime.now();
+    final diff = now.difference(date);
+
+    if (diff.inSeconds < 60) {
+      return 'just now';
+    } else if (diff.inMinutes < 60) {
+      final m = diff.inMinutes;
+      return '$m ${m == 1 ? 'min' : 'mins'} ago';
+    } else if (diff.inHours < 24) {
+      return 'today at ${DateFormat('h:mm a').format(date)}';
+    } else if (diff.inDays == 1) {
+      return 'yesterday at ${DateFormat('h:mm a').format(date)}';
+    } else {
+      return DateFormat('M/d/yy').format(date);
+    }
   }
 }

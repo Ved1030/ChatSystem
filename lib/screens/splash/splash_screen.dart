@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/constants/app_colors.dart';
 import '../../providers/auth_provider.dart';
 import '../auth/login_screen.dart';
 import '../home/home_screen.dart';
@@ -75,29 +76,61 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(
+      body: Container(
+        width: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [AppColors.primary, AppColors.secondary],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            CircleAvatar(
-              radius: 55,
-              backgroundColor: Colors.green.shade100,
+            Container(
+              width: 100,
+              height: 100,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(30),
+              ),
               child: const Icon(
-                Icons.chat,
-                size: 60,
-                color: Colors.green,
+                Icons.favorite_rounded,
+                size: 50,
+                color: Colors.white,
               ),
             ),
             const SizedBox(height: 24),
             const Text(
-              'Chat App',
+              'Conversations',
               style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
+                fontSize: 34,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+                letterSpacing: -0.5,
               ),
             ),
-            const SizedBox(height: 32),
-            const CircularProgressIndicator(color: Colors.green),
+            const SizedBox(height: 8),
+            Text(
+              'Your private companion',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w400,
+                color: Colors.white.withValues(alpha: 0.8),
+              ),
+            ),
+            const SizedBox(height: 48),
+            SizedBox(
+              width: 32,
+              height: 32,
+              child: CircularProgressIndicator(
+                strokeWidth: 3,
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  Colors.white.withValues(alpha: 0.8),
+                ),
+              ),
+            ),
           ],
         ),
       ),

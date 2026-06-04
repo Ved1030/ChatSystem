@@ -32,6 +32,9 @@
       "firebase-debug.*.log"
     ]
   },
+  "database": {
+    "rules": "database.rules"
+  },
   "firestore": {
     "rules": "firestore.rules"
   }

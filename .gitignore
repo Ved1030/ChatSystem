@@ -49,3 +49,4 @@ lib/firebase_options.dart
 # Env files
 .env
 backend/.env.example
+android/app/google-services.json

@@ -1,209 +1,73 @@
-const admin = require('firebase-admin');
-const { getDb, sendFcmNotification } = require('../firebase/firebaseAdmin');
-const logger = require('../utils/logger');
+const https = require('https');
 
-async function getReceiverInfo(receiverId) {
-  const db = getDb();
-  const userDoc = await db.collection('users').doc(receiverId).get();
-  if (!userDoc.exists) return null;
-  return userDoc.data();
-}
+const ONESIGNAL_APP_ID = '2d827c01-a2bd-47fb-a9f0-36744e68a51d';
 
-async function getChatRoomInfo(roomId) {
-  const db = getDb();
-  const roomDoc = await db.collection('chat_rooms').doc(roomId).get();
-  if (!roomDoc.exists) return null;
-  return roomDoc.data();
-}
-
-async function getSenderName(senderId) {
-  const db = getDb();
-  const senderDoc = await db.collection('users').doc(senderId).get();
-  if (!senderDoc.exists) return 'Someone';
-  const data = senderDoc.data();
-  return data.name || data.username || 'Someone';
-}
-
-function isMuted(roomData, receiverId) {
-  if (!roomData) return false;
-
-  const mutedBy = roomData.mutedBy || [];
-  if (mutedBy.includes(receiverId)) return true;
-
-  const mutedUntil = roomData.mutedUntil || {};
-  const until = mutedUntil[receiverId];
-  if (until) {
-    const untilDate = typeof until.toDate === 'function' ? until.toDate() : new Date(until);
-    if (untilDate > new Date()) return true;
+async function sendOneSignalNotification({ externalId, title, body, data, soundEnabled, vibrationEnabled }) {
+  const restApiKey = process.env.ONESIGNAL_REST_API_KEY;
+  if (!restApiKey) {
+    return { success: false, error: 'ONESIGNAL_REST_API_KEY not configured' };
   }
 
-  return false;
-}
-
-function buildNotificationBody(messageType, text, messageData) {
-  switch (messageType) {
-    case 'image':
-      return '📷 Photo';
-    case 'audio':
-      return '🎤 Voice Message';
-    case 'video':
-      return '📹 Video';
-    default:
-      return text || 'New message';
-  }
-}
-
-async function processNewMessage(messageData, messageId) {
-  const { senderId, receiverId, text, messageType } = messageData;
-  let roomId = messageData.roomId;
-
-  if (roomId && messageId) {
-    try {
-      const db = getDb();
-      const msgRef = db
-        .collection('chat_rooms')
-        .doc(roomId)
-        .collection('messages')
-        .doc(messageId);
-      await msgRef.update({
-        notificationAttemptedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-    } catch (_) {}
-  }
-
-  const [receiver, roomData, senderName] = await Promise.all([
-    getReceiverInfo(receiverId),
-    roomId ? getChatRoomInfo(roomId) : Promise.resolve(null),
-    getSenderName(senderId),
-  ]);
-
-  if (!receiver) {
-    logger.warn(`Receiver ${receiverId} not found`);
-    return { sent: false, reason: 'Receiver not found' };
-  }
-
-  if (receiver.notificationsEnabled === false) {
-    logger.debug(`Notifications disabled for user ${receiverId}`);
-    return { sent: false, reason: 'Notifications disabled by receiver' };
-  }
-
-  if (roomData && isMuted(roomData, receiverId)) {
-    logger.debug(`Chat ${roomId} muted for user ${receiverId}`);
-    return { sent: false, reason: 'Chat muted by receiver' };
-  }
-
-  const fcmToken = receiver.fcmToken;
-  if (!fcmToken) {
-    logger.debug(`No FCM token for user ${receiverId}`);
-    return { sent: false, reason: 'No FCM token' };
-  }
-
-  const title = `New message from ${senderName}`;
-  const body = buildNotificationBody(messageType, text);
-
-  const dataPayload = {
-    type: 'new_message',
-    senderId,
-    receiverId,
-    roomId: roomId || '',
-    messageId: messageId || '',
+  const notificationPayload = {
+    app_id: ONESIGNAL_APP_ID,
+    include_aliases: {
+      external_id: [externalId],
+    },
+    target_channel: 'push',
+    headings: { en: title },
+    contents: { en: body },
+    data: data || {},
+    priority: 10,
   };
 
-  logger.info(`Sending notification to ${receiverId}: ${title}`);
+  if (soundEnabled !== false) {
+    notificationPayload.android_sound = 'default';
+    notificationPayload.ios_sound = 'default';
+  }
+  if (vibrationEnabled !== false) {
+    notificationPayload.android_vibrate = true;
+  }
 
-  const result = await sendFcmNotification({
-    token: fcmToken,
-    title,
-    body,
-    data: dataPayload,
-  });
+  return new Promise((resolve) => {
+    const payload = JSON.stringify(notificationPayload);
 
-  if (result.success) {
-    logger.info(`Notification sent successfully: ${result.messageId}`);
-    if (roomId && messageId) {
-      try {
-        const db = getDb();
-        const msgRef = db
-          .collection('chat_rooms')
-          .doc(roomId)
-          .collection('messages')
-          .doc(messageId);
-        await msgRef.update({
-          status: 'delivered',
-          deliveredAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-        logger.debug(`Marked message ${messageId} as delivered`);
-      } catch (err) {
-        logger.error('Failed to mark message as delivered:', err);
-      }
-    }
-  } else if (result.error === 'TOKEN_NOT_REGISTERED') {
-    logger.warn(`FCM token not registered for user ${receiverId}, clearing token`);
-    try {
-      const db = getDb();
-      await db.collection('users').doc(receiverId).update({
-        fcmToken: null,
+    const options = {
+      hostname: 'api.onesignal.com',
+      path: '/notifications',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Basic ${restApiKey}`,
+        'Content-Length': Buffer.byteLength(payload),
+      },
+    };
+
+    const req = https.request(options, (res) => {
+      let responseBody = '';
+      res.on('data', (chunk) => {
+        responseBody += chunk;
       });
-    } catch (err) {
-      logger.error('Failed to clear invalid token:', err);
-    }
-  } else {
-    logger.error(`Failed to send notification: ${result.error}`);
-  }
-
-  return result;
-}
-
-function listenForNewMessages() {
-  const db = getDb();
-
-  try {
-    const messagesRef = db.collectionGroup('messages');
-
-    messagesRef.onSnapshot(
-      (snapshot) => {
-        snapshot.docChanges().forEach((change) => {
-          if (change.type === 'added') {
-            const messageData = change.doc.data();
-            const messageId = change.doc.id;
-            const roomId = change.doc.ref.path.split('/')[1];
-
-            if (messageData.notificationAttemptedAt) return;
-
-            const senderId = messageData.senderId;
-            const receiverId = messageData.receiverId;
-
-            if (!senderId || !receiverId) return;
-            if (senderId === receiverId) return;
-
-            processNewMessage({ ...messageData, roomId }, messageId).catch((err) => {
-              logger.error('Error processing message notification:', err);
-            });
+      res.on('end', () => {
+        try {
+          const result = JSON.parse(responseBody);
+          if (result.id) {
+            resolve({ success: true, notificationId: result.id });
+          } else {
+            resolve({ success: false, error: result.errors ? result.errors.join(', ') : 'Unknown error' });
           }
-        });
-      },
-      (error) => {
-        logger.error('Firestore listener error:', error);
-        setTimeout(listenForNewMessages, 5000);
-      },
-    );
+        } catch (e) {
+          resolve({ success: false, error: responseBody });
+        }
+      });
+    });
 
-    logger.info('Listening for new messages via collectionGroup...');
-  } catch (error) {
-    logger.error('Failed to start message listener:', error);
-    setTimeout(listenForNewMessages, 10000);
-  }
+    req.on('error', (error) => {
+      resolve({ success: false, error: error.message });
+    });
+
+    req.write(payload);
+    req.end();
+  });
 }
 
-async function sendNotification(senderId, receiverId, roomId, message, messageType, messageId) {
-  return processNewMessage(
-    { senderId, receiverId, roomId, text: message, messageType },
-    messageId,
-  );
-}
-
-module.exports = {
-  processNewMessage,
-  listenForNewMessages,
-  sendNotification,
-};
+module.exports = { sendOneSignalNotification };

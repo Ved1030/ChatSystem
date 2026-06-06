@@ -43,7 +43,6 @@ class AuthProvider extends ChangeNotifier {
     try {
       final userModel = await _userRepository.getUser(firebaseUser.uid);
       if (userModel == null) {
-        final fcmToken = NotificationService().currentToken;
         _user = UserModel(
           uid: firebaseUser.uid,
           name: firebaseUser.displayName ?? '',
@@ -51,14 +50,13 @@ class AuthProvider extends ChangeNotifier {
           email: firebaseUser.email ?? '',
           photoUrl: firebaseUser.photoURL,
           isOnline: true,
-          fcmToken: fcmToken,
         );
         await _userRepository.createUser(_user!);
       } else {
         _user = userModel;
         await _userRepository.updateOnlineStatus(firebaseUser.uid, true);
-        _updateFcmToken(firebaseUser.uid);
       }
+      await _associateOneSignal(firebaseUser.uid);
     } catch (e) {
       _user = null;
       _error = e.toString();
@@ -66,23 +64,13 @@ class AuthProvider extends ChangeNotifier {
     _isLoading = false;
     _isLoadingUser = false;
     _isInitialized = true;
-    _setupFcmTokenListener();
     notifyListeners();
   }
 
-  void _setupFcmTokenListener() {
-    NotificationService().onTokenChanged = (String newToken) {
-      if (_user != null) {
-        _userRepository.updateUser(_user!.uid, {'fcmToken': newToken});
-      }
-    };
-  }
-
-  Future<void> _updateFcmToken(String uid) async {
-    final token = NotificationService().currentToken;
-    if (token != null) {
-      await _userRepository.updateUser(uid, {'fcmToken': token});
-    }
+  Future<void> _associateOneSignal(String uid) async {
+    try {
+      await NotificationService().login(uid);
+    } catch (_) {}
   }
 
   void _onAuthStateChanged(User? firebaseUser) async {
@@ -122,7 +110,6 @@ class AuthProvider extends ChangeNotifier {
         password: password,
       );
 
-      final fcmToken = NotificationService().currentToken;
       _user = UserModel(
         uid: credential.user!.uid,
         name: name,
@@ -130,9 +117,9 @@ class AuthProvider extends ChangeNotifier {
         email: email,
         createdAt: DateTime.now(),
         isOnline: true,
-        fcmToken: fcmToken,
       );
       await _userRepository.createUser(_user!);
+      await _associateOneSignal(_user!.uid);
       _isLoading = false;
       notifyListeners();
     } on FirebaseAuthException catch (e) {
@@ -160,7 +147,7 @@ class AuthProvider extends ChangeNotifier {
       _user = await _userRepository.getUser(credential.user!.uid);
       if (_user != null) {
         await _userRepository.updateOnlineStatus(_user!.uid, true);
-        _updateFcmToken(_user!.uid);
+        await _associateOneSignal(_user!.uid);
       }
       _isLoading = false;
       notifyListeners();
@@ -198,8 +185,8 @@ class AuthProvider extends ChangeNotifier {
         await _userRepository.createUser(_user!);
       } else {
         await _userRepository.updateOnlineStatus(_user!.uid, true);
-        _updateFcmToken(_user!.uid);
       }
+      await _associateOneSignal(_user!.uid);
 
       _isLoading = false;
       notifyListeners();
@@ -214,6 +201,7 @@ class AuthProvider extends ChangeNotifier {
     if (_user != null) {
       await _userRepository.updateOnlineStatus(_user!.uid, false);
     }
+    await NotificationService().logout();
     await _authRepository.logout();
     _user = null;
     notifyListeners();

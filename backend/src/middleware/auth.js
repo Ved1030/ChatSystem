@@ -1,19 +1,17 @@
-const { verifyIdToken } = require('../firebase/firebaseAdmin');
+const API_KEY = process.env.BACKEND_API_KEY;
 
-async function authMiddleware(req, res, next) {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Unauthorized: No token provided' });
-    }
+function apiKeyAuth(req, res, next) {
+  const apiKey = req.headers['x-api-key'];
 
-    const idToken = authHeader.split('Bearer ')[1];
-    const decoded = await verifyIdToken(idToken);
-    req.user = decoded;
-    next();
-  } catch (error) {
-    return res.status(401).json({ error: 'Unauthorized: Invalid token' });
+  if (!API_KEY) {
+    return res.status(500).json({ error: 'Server misconfigured: BACKEND_API_KEY not set' });
   }
+
+  if (!apiKey || apiKey !== API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized: invalid or missing API key' });
+  }
+
+  next();
 }
 
-module.exports = { authMiddleware };
+module.exports = { apiKeyAuth };

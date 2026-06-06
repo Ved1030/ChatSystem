@@ -1,8 +1,12 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
 import '../models/album_model.dart';
 import '../models/chat_model.dart';
 import '../models/message_model.dart';
 import '../models/plan_model.dart';
 import '../services/firestore_service.dart';
+import '../services/notification_api_service.dart';
 import '../services/supabase_storage_service.dart';
 
 class ChatRepository {
@@ -29,7 +33,7 @@ class ChatRepository {
     clearedAt: clearedAt,
   );
 
-  Future<void> sendMessage({
+  Future<String> sendMessage({
     required String chatRoomId,
     required String senderId,
     required String receiverId,
@@ -41,19 +45,96 @@ class ChatRepository {
     String? replyToMessageId,
     String? replyToText,
     String? replyToSender,
-  }) => _firestoreService.sendMessage(
-    chatRoomId: chatRoomId,
-    senderId: senderId,
-    receiverId: receiverId,
-    text: text,
-    messageType: messageType,
-    imageMode: imageMode,
-    mediaUrl: mediaUrl,
-    expiresAt: expiresAt,
-    replyToMessageId: replyToMessageId,
-    replyToText: replyToText,
-    replyToSender: replyToSender,
-  );
+  }) async {
+    final messageId = await _firestoreService.sendMessage(
+      chatRoomId: chatRoomId,
+      senderId: senderId,
+      receiverId: receiverId,
+      text: text,
+      messageType: messageType,
+      imageMode: imageMode,
+      mediaUrl: mediaUrl,
+      expiresAt: expiresAt,
+      replyToMessageId: replyToMessageId,
+      replyToText: replyToText,
+      replyToSender: replyToSender,
+    );
+
+    _triggerNotification(
+      chatRoomId: chatRoomId,
+      senderId: senderId,
+      receiverId: receiverId,
+      text: text,
+      messageType: messageType,
+      messageId: messageId,
+    );
+
+    return messageId;
+  }
+
+  Future<void> _triggerNotification({
+    required String chatRoomId,
+    required String senderId,
+    required String receiverId,
+    required String text,
+    required String messageType,
+    required String messageId,
+  }) async {
+    try {
+      final sender = FirebaseAuth.instance.currentUser;
+      if (sender == null) return;
+      if (senderId == receiverId) return;
+
+      final [userSnap, roomSnap] = await Future.wait([
+        FirebaseFirestore.instance.collection('users').doc(receiverId).get(),
+        FirebaseFirestore.instance.collection('chat_rooms').doc(chatRoomId).get(),
+      ]);
+
+      if (!userSnap.exists) return;
+      final userData = userSnap.data()!;
+
+      final notificationsEnabled = userData['notificationsEnabled'] as bool? ?? true;
+      if (!notificationsEnabled) return;
+
+      final soundEnabled = userData['soundEnabled'] as bool? ?? true;
+      final vibrationEnabled = userData['vibrationEnabled'] as bool? ?? true;
+
+      bool isMuted = false;
+      if (roomSnap.exists) {
+        final roomData = roomSnap.data()!;
+        final mutedBy = List<String>.from(roomData['mutedBy'] as List? ?? []);
+        if (mutedBy.contains(receiverId)) {
+          isMuted = true;
+        }
+        if (!isMuted) {
+          final mutedUntil = roomData['mutedUntil'] as Map<String, dynamic>? ?? {};
+          final until = mutedUntil[receiverId];
+          if (until != null) {
+            final untilDate = (until as Timestamp).toDate();
+            if (untilDate.isAfter(DateTime.now())) {
+              isMuted = true;
+            }
+          }
+        }
+      }
+
+      final senderName = sender.displayName ?? 'User';
+
+      await NotificationApiService.sendNotification(
+        senderId: senderId,
+        receiverId: receiverId,
+        roomId: chatRoomId,
+        message: text,
+        messageType: messageType,
+        messageId: messageId,
+        senderName: senderName,
+        notificationsEnabled: notificationsEnabled,
+        soundEnabled: soundEnabled,
+        vibrationEnabled: vibrationEnabled,
+        isMuted: isMuted,
+      );
+    } catch (_) {}
+  }
 
   Future<void> deleteMessageForEveryone(String chatRoomId, String messageId) =>
       _firestoreService.deleteMessageForEveryone(chatRoomId, messageId);

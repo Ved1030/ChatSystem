@@ -8,6 +8,11 @@ const db = admin.firestore();
 exports.sendMessageNotification = functions.firestore
   .document("chat_rooms/{roomId}/messages/{messageId}")
   .onCreate(async (snapshot, context) => {
+    // DISABLED: Render backend handles notification delivery via
+    // backend/src/services/notificationService.js (listens via collectionGroup).
+    // This function is kept for reference only.
+    return null;
+
     const { roomId } = context.params;
 
     const messageData = snapshot.data();

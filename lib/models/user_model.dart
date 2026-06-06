@@ -10,8 +10,10 @@ class UserModel {
   final DateTime? lastSeen;
   final bool isOnline;
   final List<String> blockedUsers;
-  final String? fcmToken;
+  final String? oneSignalId;
   final bool notificationsEnabled;
+  final bool soundEnabled;
+  final bool vibrationEnabled;
 
   const UserModel({
     required this.uid,
@@ -23,8 +25,10 @@ class UserModel {
     this.lastSeen,
     this.isOnline = false,
     this.blockedUsers = const [],
-    this.fcmToken,
+    this.oneSignalId,
     this.notificationsEnabled = true,
+    this.soundEnabled = true,
+    this.vibrationEnabled = true,
   });
 
   factory UserModel.fromMap(Map<String, dynamic> map) {
@@ -38,8 +42,10 @@ class UserModel {
       lastSeen: (map['lastSeen'] as Timestamp?)?.toDate(),
       isOnline: map['isOnline'] as bool? ?? false,
       blockedUsers: List<String>.from(map['blockedUsers'] as List? ?? []),
-      fcmToken: map['fcmToken'] as String?,
+      oneSignalId: map['oneSignalId'] as String?,
       notificationsEnabled: map['notificationsEnabled'] as bool? ?? true,
+      soundEnabled: map['soundEnabled'] as bool? ?? true,
+      vibrationEnabled: map['vibrationEnabled'] as bool? ?? true,
     );
   }
 
@@ -54,8 +60,10 @@ class UserModel {
       'lastSeen': lastSeen ?? FieldValue.serverTimestamp(),
       'isOnline': isOnline,
       'blockedUsers': blockedUsers,
-      'fcmToken': fcmToken,
+      'oneSignalId': oneSignalId,
       'notificationsEnabled': notificationsEnabled,
+      'soundEnabled': soundEnabled,
+      'vibrationEnabled': vibrationEnabled,
     };
   }
 
@@ -67,6 +75,8 @@ class UserModel {
       'isOnline': isOnline,
       'lastSeen': lastSeen ?? FieldValue.serverTimestamp(),
       'notificationsEnabled': notificationsEnabled,
+      'soundEnabled': soundEnabled,
+      'vibrationEnabled': vibrationEnabled,
     };
   }
 
@@ -80,8 +90,10 @@ class UserModel {
     DateTime? lastSeen,
     bool? isOnline,
     List<String>? blockedUsers,
-    String? fcmToken,
+    String? oneSignalId,
     bool? notificationsEnabled,
+    bool? soundEnabled,
+    bool? vibrationEnabled,
   }) {
     return UserModel(
       uid: uid ?? this.uid,
@@ -93,8 +105,10 @@ class UserModel {
       lastSeen: lastSeen ?? this.lastSeen,
       isOnline: isOnline ?? this.isOnline,
       blockedUsers: blockedUsers ?? this.blockedUsers,
-      fcmToken: fcmToken ?? this.fcmToken,
+      oneSignalId: oneSignalId ?? this.oneSignalId,
       notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
+      soundEnabled: soundEnabled ?? this.soundEnabled,
+      vibrationEnabled: vibrationEnabled ?? this.vibrationEnabled,
     );
   }
 }

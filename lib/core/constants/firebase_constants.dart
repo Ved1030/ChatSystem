@@ -53,7 +53,7 @@ class FirebaseConstants {
   static const String replyToMessageId = 'replyToMessageId';
   static const String replyToText = 'replyToText';
   static const String replyToSender = 'replyToSender';
-  static const String fcmToken = 'fcmToken';
+  static const String oneSignalId = 'oneSignalId';
   static const String notificationsEnabled = 'notificationsEnabled';
   static const String mutedUntil = 'mutedUntil';
 }

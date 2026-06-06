@@ -161,7 +161,7 @@ class FirestoreService {
     });
   }
 
-  Future<void> sendMessage({
+  Future<String> sendMessage({
     required String chatRoomId,
     required String senderId,
     required String receiverId,
@@ -188,7 +188,8 @@ class FirestoreService {
       replyToSender: replyToSender,
     );
 
-    await messagesRef(chatRoomId).add(message.toMap());
+    final docRef = await messagesRef(chatRoomId).add(message.toMap());
+    final messageId = docRef.id;
 
     final displayText = messageType == 'image'
         ? (imageMode == 'view_once' ? 'View Once Image' : 'Image')
@@ -200,6 +201,8 @@ class FirestoreService {
     });
 
     await incrementUnreadCount(chatRoomId, receiverId);
+
+    return messageId;
   }
 
   Future<void> deleteMessageForEveryone(

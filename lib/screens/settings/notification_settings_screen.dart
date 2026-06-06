@@ -2,7 +2,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../repositories/user_repository.dart';
-import '../../services/notification_service.dart';
 
 class NotificationSettingsScreen extends StatefulWidget {
   const NotificationSettingsScreen({super.key});
@@ -16,6 +15,8 @@ class _NotificationSettingsScreenState
     extends State<NotificationSettingsScreen> {
   final UserRepository _userRepository = UserRepository();
   bool _notificationsEnabled = true;
+  bool _soundEnabled = true;
+  bool _vibrationEnabled = true;
   bool _isLoading = true;
 
   @override
@@ -32,6 +33,8 @@ class _NotificationSettingsScreenState
     if (mounted) {
       setState(() {
         _notificationsEnabled = user?.notificationsEnabled ?? true;
+        _soundEnabled = user?.soundEnabled ?? true;
+        _vibrationEnabled = user?.vibrationEnabled ?? true;
         _isLoading = false;
       });
     }
@@ -42,18 +45,29 @@ class _NotificationSettingsScreenState
     if (currentUid == null) return;
 
     setState(() => _notificationsEnabled = value);
+    await _userRepository.updateUser(currentUid, {
+      'notificationsEnabled': value,
+    });
+  }
 
-    if (value) {
-      final token = NotificationService().currentToken;
-      await _userRepository.updateUser(currentUid, {
-        'fcmToken': token,
-        'notificationsEnabled': true,
-      });
-    } else {
-      await _userRepository.updateUser(currentUid, {
-        'notificationsEnabled': false,
-      });
-    }
+  Future<void> _toggleSound(bool value) async {
+    final currentUid = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUid == null) return;
+
+    setState(() => _soundEnabled = value);
+    await _userRepository.updateUser(currentUid, {
+      'soundEnabled': value,
+    });
+  }
+
+  Future<void> _toggleVibration(bool value) async {
+    final currentUid = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUid == null) return;
+
+    setState(() => _vibrationEnabled = value);
+    await _userRepository.updateUser(currentUid, {
+      'vibrationEnabled': value,
+    });
   }
 
   @override
@@ -93,32 +107,22 @@ class _NotificationSettingsScreenState
                 const SizedBox(height: 24),
                 _buildSection('Sounds'),
                 const SizedBox(height: 8),
-                _buildTile(
+                _buildToggleTile(
                   icon: Icons.volume_up_rounded,
                   iconColor: const Color(0xFFFF9800),
                   title: 'Sound',
                   subtitle: 'Play sound for notifications',
-                  trailing: Switch(
-                    value: true,
-                    activeTrackColor:
-                        const Color(0xFF4CAF50).withValues(alpha: 0.4),
-                    activeThumbColor: const Color(0xFF4CAF50),
-                    onChanged: (_) {},
-                  ),
+                  value: _soundEnabled,
+                  onChanged: _toggleSound,
                 ),
                 const SizedBox(height: 10),
-                _buildTile(
+                _buildToggleTile(
                   icon: Icons.vibration_rounded,
                   iconColor: const Color(0xFF9C27B0),
                   title: 'Vibrate',
                   subtitle: 'Vibrate on new notifications',
-                  trailing: Switch(
-                    value: true,
-                    activeTrackColor:
-                        const Color(0xFF4CAF50).withValues(alpha: 0.4),
-                    activeThumbColor: const Color(0xFF4CAF50),
-                    onChanged: (_) {},
-                  ),
+                  value: _vibrationEnabled,
+                  onChanged: _toggleVibration,
                 ),
                 const SizedBox(height: 24),
                 _buildSection('Preview'),

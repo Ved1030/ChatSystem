@@ -1,9 +1,29 @@
-const { sendNotification } = require('../services/notificationService');
+const { sendOneSignalNotification } = require('../services/notificationService');
 const logger = require('../utils/logger');
 
-async function sendMessageNotification(req, res) {
+const sentMessageIds = new Set();
+const DEDUP_TTL_MS = 5 * 60 * 1000;
+
+function markSent(messageId) {
+  sentMessageIds.add(messageId);
+  setTimeout(() => sentMessageIds.delete(messageId), DEDUP_TTL_MS);
+}
+
+async function handleSendNotification(req, res) {
   try {
-    const { senderId, receiverId, roomId, message, messageType, messageId } = req.body;
+    const {
+      senderId,
+      receiverId,
+      roomId,
+      message,
+      messageType,
+      messageId,
+      senderName,
+      notificationsEnabled,
+      soundEnabled,
+      vibrationEnabled,
+      isMuted,
+    } = req.body;
 
     if (!senderId || !receiverId || !roomId || !message) {
       return res.status(400).json({
@@ -12,28 +32,56 @@ async function sendMessageNotification(req, res) {
       });
     }
 
-    logger.info(`Notification request: sender=${senderId}, receiver=${receiverId}, room=${roomId}`);
+    if (!notificationsEnabled) {
+      return res.json({ success: true, skipped: 'notifications disabled' });
+    }
 
-    const result = await sendNotification(
+    if (isMuted) {
+      return res.json({ success: true, skipped: 'chat muted' });
+    }
+
+    if (messageId && sentMessageIds.has(messageId)) {
+      return res.json({ success: true, skipped: 'duplicate' });
+    }
+
+    if (messageId) {
+      markSent(messageId);
+    }
+
+    const title = `New message from ${senderName || 'User'}`;
+    const body = (messageType === 'image' ? '📷 Photo' :
+                  messageType === 'audio' ? '🎤 Voice Message' :
+                  messageType === 'video' ? '📹 Video' :
+                  message || 'New message');
+
+    const dataPayload = {
+      type: 'new_message',
       senderId,
       receiverId,
       roomId,
-      message,
-      messageType || 'text',
-      messageId,
-    );
+      messageId: messageId || '',
+    };
 
-    return res.status(200).json({
-      success: result.success !== false,
-      data: result,
+    const result = await sendOneSignalNotification({
+      externalId: receiverId,
+      title,
+      body,
+      data: dataPayload,
+      soundEnabled,
+      vibrationEnabled,
     });
+
+    if (result.success) {
+      logger.info(`Notification sent: ${result.notificationId} for message ${messageId}`);
+    } else {
+      logger.error(`Notification failed: ${result.error} for message ${messageId}`);
+    }
+
+    return res.json({ success: result.success, data: result });
   } catch (error) {
     logger.error('Error sending notification:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Internal server error',
-    });
+    return res.status(500).json({ success: false, error: 'Internal server error' });
   }
 }
 
-module.exports = { sendMessageNotification };
+module.exports = { handleSendNotification };

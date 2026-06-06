@@ -21,14 +21,32 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load();
 
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  debugPrint('[STARTUP] Firebase apps count before init: ${Firebase.apps.length}');
 
+  if (Firebase.apps.isEmpty) {
+    try {
+      await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+      debugPrint('[STARTUP] Firebase initialized successfully');
+    } catch (e, s) {
+      debugPrint('[STARTUP] Firebase init error: $e');
+      debugPrint('[STARTUP] Firebase init stack trace: $s');
+    }
+  } else {
+    debugPrint('[STARTUP] Firebase app already exists in Dart context');
+  }
+
+  debugPrint('[STARTUP] Firebase apps count after init: ${Firebase.apps.length}');
+
+  debugPrint('[STARTUP] Supabase initialization start');
   await Supabase.initialize(
     url: dotenv.env['SUPABASE_URL']!,
     publishableKey: dotenv.env['SUPABASE_ANON_KEY']!,
   );
+  debugPrint('[STARTUP] Supabase initialization end');
 
+  debugPrint('[STARTUP] OneSignal initialization start');
   await notificationService.init(navigatorKey);
+  debugPrint('[STARTUP] OneSignal initialization end');
 
   runApp(const MyApp());
 }

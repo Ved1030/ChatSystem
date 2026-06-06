@@ -48,11 +48,8 @@ async function handleSendNotification(req, res) {
       markSent(messageId);
     }
 
-    const title = `New message from ${senderName || 'User'}`;
-    const body = (messageType === 'image' ? '📷 Photo' :
-                  messageType === 'audio' ? '🎤 Voice Message' :
-                  messageType === 'video' ? '📹 Video' :
-                  message || 'New message');
+    const title = 'New Message';
+    const body = 'You have received a new message';
 
     const dataPayload = {
       type: 'new_message',

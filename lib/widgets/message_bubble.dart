@@ -6,11 +6,14 @@ import '../core/utils/date_formatter.dart';
 import '../models/message_model.dart';
 import '../screens/media/image_view_screen.dart';
 
-class MessageBubble extends StatelessWidget {
+class MessageBubble extends StatefulWidget {
   final MessageModel message;
   final bool isMe;
   final VoidCallback? onLongPress;
   final VoidCallback? onViewOnceOpened;
+  final VoidCallback? onReplyTap;
+  final VoidCallback? onSwipeToReply;
+  final bool isHighlighted;
 
   const MessageBubble({
     super.key,
@@ -18,10 +21,54 @@ class MessageBubble extends StatelessWidget {
     required this.isMe,
     this.onLongPress,
     this.onViewOnceOpened,
+    this.onReplyTap,
+    this.onSwipeToReply,
+    this.isHighlighted = false,
   });
 
+  @override
+  State<MessageBubble> createState() => _MessageBubbleState();
+}
+
+class _MessageBubbleState extends State<MessageBubble>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _highlightController;
+  late Animation<Color?> _highlightAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _highlightController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+    _highlightAnimation = ColorTween(
+      begin: null,
+      end: Colors.yellow.withValues(alpha: 0.15),
+    ).animate(_highlightController);
+    if (widget.isHighlighted) {
+      _highlightController.forward();
+    }
+  }
+
+  @override
+  void didUpdateWidget(MessageBubble oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.isHighlighted && widget.isHighlighted) {
+      _highlightController.forward().then((_) {
+        _highlightController.reverse();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _highlightController.dispose();
+    super.dispose();
+  }
+
   IconData get _statusIcon {
-    switch (message.status) {
+    switch (widget.message.status) {
       case 'read':
         return Icons.done_all_rounded;
       case 'delivered':
@@ -32,7 +79,7 @@ class MessageBubble extends StatelessWidget {
   }
 
   Color get _statusColor {
-    switch (message.status) {
+    switch (widget.message.status) {
       case 'read':
         return const Color(0xFF81C784);
       case 'delivered':
@@ -43,69 +90,82 @@ class MessageBubble extends StatelessWidget {
   }
 
   void _openImageView(BuildContext context) {
-    if (message.mediaUrl == null || message.mediaUrl!.isEmpty) return;
+    if (widget.message.mediaUrl == null || widget.message.mediaUrl!.isEmpty) return;
 
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => ImageViewScreen(
-          imageUrl: message.mediaUrl!,
-          tag: 'chat_image_${message.id}',
-          isViewOnce: message.isViewOnce && !isMe,
+          imageUrls: [widget.message.mediaUrl!],
+          tag: 'chat_image_${widget.message.id}',
+          isViewOnce: widget.message.isViewOnce && !isMe,
           onClose: () {
-            onViewOnceOpened?.call();
+            widget.onViewOnceOpened?.call();
           },
         ),
       ),
     );
   }
 
+  bool get isDeleted => widget.message.isDeleted;
+  bool get isMe => widget.isMe;
+
   @override
   Widget build(BuildContext context) {
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: GestureDetector(
-        onLongPress: onLongPress,
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 8),
-          constraints: BoxConstraints(
-            maxWidth: message.isImage
-                ? MediaQuery.of(context).size.width * 0.7
-                : MediaQuery.of(context).size.width * 0.75,
-          ),
-          decoration: BoxDecoration(
-            color: isDeleted
-                ? (isMe
-                      ? AppColors.primary.withValues(alpha: 0.5)
-                      : AppColors.border)
-                : (isMe ? AppColors.primary : AppColors.surface),
-            borderRadius: BorderRadius.only(
-              topLeft: const Radius.circular(20),
-              topRight: const Radius.circular(20),
-              bottomLeft: isMe
-                  ? const Radius.circular(20)
-                  : const Radius.circular(4),
-              bottomRight: isMe
-                  ? const Radius.circular(4)
-                  : const Radius.circular(20),
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: isMe
-                    ? AppColors.primary.withValues(alpha: 0.15)
-                    : Colors.black.withValues(alpha: 0.04),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
+        onLongPress: widget.onLongPress,
+        onHorizontalDragEnd: (details) {
+          if (details.primaryVelocity != null && details.primaryVelocity! > 200) {
+            widget.onSwipeToReply?.call();
+          }
+        },
+        child: AnimatedBuilder(
+          animation: _highlightAnimation,
+          builder: (context, child) {
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              constraints: BoxConstraints(
+                maxWidth: widget.message.isImage
+                    ? MediaQuery.of(context).size.width * 0.7
+                    : MediaQuery.of(context).size.width * 0.75,
               ),
-            ],
-          ),
+              decoration: BoxDecoration(
+                color: _highlightAnimation.value ??
+                    (isDeleted
+                        ? (isMe
+                              ? AppColors.primary.withValues(alpha: 0.5)
+                              : AppColors.border)
+                        : (isMe ? AppColors.primary : AppColors.surface)),
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(20),
+                  topRight: const Radius.circular(20),
+                  bottomLeft: isMe
+                      ? const Radius.circular(20)
+                      : const Radius.circular(4),
+                  bottomRight: isMe
+                      ? const Radius.circular(4)
+                      : const Radius.circular(20),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: isMe
+                        ? AppColors.primary.withValues(alpha: 0.15)
+                        : Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: child,
+            );
+          },
           child: _buildContent(context),
         ),
       ),
     );
   }
-
-  bool get isDeleted => message.isDeleted;
 
   Widget _buildContent(BuildContext context) {
     if (isDeleted) {
@@ -122,15 +182,70 @@ class MessageBubble extends StatelessWidget {
       );
     }
 
-    if (message.isViewOnce && !isMe) {
-      return _buildViewOnceContent(context);
-    }
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (widget.message.replyToMessageId != null)
+          _buildReplyBar(context),
+        if (widget.message.isViewOnce && !widget.message.viewed)
+          _buildViewOnceContent(context)
+        else if (widget.message.isViewOnce && widget.message.viewed)
+          _buildPhotoOpenedContent()
+        else if (widget.message.isImage && widget.message.mediaUrl != null)
+          _buildImageContent(context)
+        else
+          _buildTextContent(),
+      ],
+    );
+  }
 
-    if (message.isImage && message.mediaUrl != null) {
-      return _buildImageContent(context);
-    }
+  Widget _buildReplyBar(BuildContext context) {
+    final replyText = widget.message.replyToText ?? '';
+    final replySender = widget.message.replyToSender ?? '';
 
-    return _buildTextContent();
+    return GestureDetector(
+      onTap: widget.onReplyTap,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+        decoration: BoxDecoration(
+          border: Border(
+            left: BorderSide(
+              color: isMe ? Colors.white54 : AppColors.primary,
+              width: 2.5,
+            ),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              replySender,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: isMe ? Colors.white70 : AppColors.primary,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 2),
+            Text(
+              replyText,
+              style: TextStyle(
+                fontSize: 12,
+                color: isMe
+                    ? Colors.white.withValues(alpha: 0.5)
+                    : AppColors.textSecondary,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildTextContent() {
@@ -140,7 +255,7 @@ class MessageBubble extends StatelessWidget {
         crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         children: [
           Text(
-            message.text,
+            widget.message.text,
             style: TextStyle(
               color: isMe ? Colors.white : AppColors.textPrimary,
               fontSize: 15,
@@ -151,7 +266,7 @@ class MessageBubble extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                DateFormatter.formatTime(message.timestamp),
+                DateFormatter.formatTime(widget.message.timestamp),
                 style: TextStyle(
                   color: isMe
                       ? Colors.white.withValues(alpha: 0.6)
@@ -174,7 +289,7 @@ class MessageBubble extends StatelessWidget {
     return GestureDetector(
       onTap: () => _openImageView(context),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           ClipRRect(
             borderRadius: BorderRadius.only(
@@ -188,9 +303,9 @@ class MessageBubble extends StatelessWidget {
                   : const Radius.circular(20),
             ),
             child: Hero(
-              tag: 'chat_image_${message.id}',
+              tag: 'chat_image_${widget.message.id}',
               child: CachedNetworkImage(
-                imageUrl: message.mediaUrl!,
+                imageUrl: widget.message.mediaUrl!,
                 fit: BoxFit.cover,
                 width: double.infinity,
                 placeholder: (_, __) => Container(
@@ -220,7 +335,7 @@ class MessageBubble extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  DateFormatter.formatTime(message.timestamp),
+                  DateFormatter.formatTime(widget.message.timestamp),
                   style: TextStyle(
                     color: isMe
                         ? Colors.white.withValues(alpha: 0.6)
@@ -228,7 +343,7 @@ class MessageBubble extends StatelessWidget {
                     fontSize: 11,
                   ),
                 ),
-                if (message.isTemporary)
+                if (widget.message.isTemporary)
                   Padding(
                     padding: const EdgeInsets.only(left: 6),
                     child: Icon(
@@ -252,8 +367,9 @@ class MessageBubble extends StatelessWidget {
   }
 
   Widget _buildViewOnceContent(BuildContext context) {
+    final canTap = !isMe && !widget.message.viewed;
     return GestureDetector(
-      onTap: () => _openImageView(context),
+      onTap: canTap ? () => _openImageView(context) : null,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
         child: Column(
@@ -276,30 +392,28 @@ class MessageBubble extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              isMe ? 'You sent a View Once Image' : 'View Once Image',
+              'View Once Photo',
               style: TextStyle(
-                color: isMe ? Colors.white : AppColors.textPrimary,
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
+                color: isMe ? Colors.white : AppColors.textPrimary,
               ),
             ),
             const SizedBox(height: 4),
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (!isMe)
+                if (canTap)
                   Text(
                     'Tap to view',
                     style: TextStyle(
-                      color: isMe
-                          ? Colors.white.withValues(alpha: 0.5)
-                          : AppColors.primary,
+                      color: AppColors.primary,
                       fontSize: 11,
                     ),
                   ),
                 const SizedBox(width: 8),
                 Text(
-                  DateFormatter.formatTime(message.timestamp),
+                  DateFormatter.formatTime(widget.message.timestamp),
                   style: TextStyle(
                     color: isMe
                         ? Colors.white.withValues(alpha: 0.5)
@@ -315,6 +429,47 @@ class MessageBubble extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildPhotoOpenedContent() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.visibility_off_rounded,
+            size: 16,
+            color: isMe
+                ? Colors.white.withValues(alpha: 0.6)
+                : AppColors.textSecondary.withValues(alpha: 0.6),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            'Photo Opened',
+            style: TextStyle(
+              color: isMe ? Colors.white : AppColors.textPrimary,
+              fontSize: 14,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            DateFormatter.formatTime(widget.message.timestamp),
+            style: TextStyle(
+              color: isMe
+                  ? Colors.white.withValues(alpha: 0.6)
+                  : AppColors.textSecondary.withValues(alpha: 0.6),
+              fontSize: 11,
+            ),
+          ),
+          if (isMe) ...[
+            const SizedBox(width: 4),
+            Icon(_statusIcon, size: 14, color: _statusColor),
+          ],
+        ],
       ),
     );
   }

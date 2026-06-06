@@ -3,6 +3,7 @@ import '../models/chat_model.dart';
 import '../models/message_model.dart';
 import '../models/plan_model.dart';
 import '../services/firestore_service.dart';
+import '../services/supabase_storage_service.dart';
 
 class ChatRepository {
   final FirestoreService _firestoreService = FirestoreService();
@@ -37,6 +38,9 @@ class ChatRepository {
     String? imageMode,
     String? mediaUrl,
     DateTime? expiresAt,
+    String? replyToMessageId,
+    String? replyToText,
+    String? replyToSender,
   }) => _firestoreService.sendMessage(
     chatRoomId: chatRoomId,
     senderId: senderId,
@@ -46,6 +50,9 @@ class ChatRepository {
     imageMode: imageMode,
     mediaUrl: mediaUrl,
     expiresAt: expiresAt,
+    replyToMessageId: replyToMessageId,
+    replyToText: replyToText,
+    replyToSender: replyToSender,
   );
 
   Future<void> deleteMessageForEveryone(String chatRoomId, String messageId) =>
@@ -86,11 +93,30 @@ class ChatRepository {
   Stream<List<AlbumPhotoModel>> albumPhotosStream(String albumId) =>
       _firestoreService.albumPhotosStream(albumId);
 
-  Future<void> addAlbumPhoto(String albumId, AlbumPhotoModel photo) =>
+  Future<String> addAlbumPhoto(String albumId, AlbumPhotoModel photo) =>
       _firestoreService.addAlbumPhoto(albumId, photo);
 
   Future<void> deleteAlbumPhoto(String albumId, String photoId) =>
       _firestoreService.deleteAlbumPhoto(albumId, photoId);
+
+  Future<void> deleteAllAlbumPhotos(String albumId) =>
+      _firestoreService.deleteAllAlbumPhotos(albumId);
+
+  Future<void> deleteAlbumWithImages(String albumId) async {
+    final storage = SupabaseStorageService();
+    await storage.deleteAlbumFolder(albumId);
+    await _firestoreService.deleteAllAlbumPhotos(albumId);
+    await _firestoreService.deleteAlbum(albumId);
+  }
+
+  Future<void> deleteAlbumPhotoWithImage(String albumId, String photoId, String imageUrl) async {
+    final storage = SupabaseStorageService();
+    final path = storage.extractAlbumImagePath(imageUrl);
+    if (path != null) {
+      await storage.deleteFile('albums', path);
+    }
+    await _firestoreService.deleteAlbumPhoto(albumId, photoId);
+  }
 
   Stream<List<PlanModel>> plansStream(String currentUid) =>
       _firestoreService.plansStream(currentUid);
@@ -133,4 +159,14 @@ class ChatRepository {
 
   Stream<List<String>> chatMediaStream(String chatRoomId) =>
       _firestoreService.chatMediaStream(chatRoomId);
+
+  Stream<int> unreadCountStream(
+    String chatRoomId,
+    String currentUid,
+    String otherUid,
+  ) => _firestoreService.unreadCountStream(
+    chatRoomId,
+    currentUid,
+    otherUid,
+  );
 }

@@ -27,6 +27,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
 
   List<AlbumPhotoModel> _photos = [];
   bool _loading = true;
+  bool _uploading = false;
   StreamSubscription? _photosSub;
 
   @override
@@ -56,6 +57,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
   }
 
   Future<void> _addPhoto() async {
+    if (_uploading) return;
     try {
       final XFile? picked = await _imagePicker.pickImage(
         source: ImageSource.gallery,
@@ -64,6 +66,8 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
         maxHeight: 1920,
       );
       if (picked == null) return;
+
+      setState(() => _uploading = true);
 
       final currentUid = FirebaseAuth.instance.currentUser!.uid;
       final albumId = widget.album.id;
@@ -79,11 +83,20 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
 
       final photo = AlbumPhotoModel(
         imageUrl: imageUrl,
-        creatorId: currentUid,
-        createdAt: DateTime.now(),
+        uploadedBy: currentUid,
+        uploadedAt: DateTime.now(),
       );
 
-      await _chatRepository.addAlbumPhoto(albumId, photo);
+      final docId = await _chatRepository.addAlbumPhoto(albumId, photo);
+
+      if (_photos.isEmpty && docId.isNotEmpty) {
+        await _chatRepository.updateAlbum(albumId, {
+          'coverUrl': imageUrl,
+          'coverImageUrl': imageUrl,
+        });
+      }
+
+      setState(() => _uploading = false);
 
       if (mounted) {
         ScaffoldMessenger.of(
@@ -91,11 +104,40 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
         ).showSnackBar(const SnackBar(content: Text('Photo added')));
       }
     } catch (e) {
+      setState(() => _uploading = false);
       if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Failed to add photo: $e')));
       }
+    }
+  }
+
+  Future<void> _confirmDeleteAlbum() async {
+    if (widget.album.id == null) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Album'),
+        content: Text('Delete "${widget.album.title}" and all its photos?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Delete',
+              style: TextStyle(color: AppColors.error),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true && mounted) {
+      await _chatRepository.deleteAlbumWithImages(widget.album.id!);
+      if (mounted) Navigator.pop(context);
     }
   }
 
@@ -106,9 +148,36 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
       appBar: AppBar(
         title: Text(widget.album.title),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.add_photo_alternate_rounded),
-            onPressed: _addPhoto,
+          if (_uploading)
+            const Padding(
+              padding: EdgeInsets.only(right: 12),
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          if (!_uploading)
+            IconButton(
+              icon: const Icon(Icons.add_photo_alternate_rounded),
+              onPressed: _addPhoto,
+            ),
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              if (value == 'delete') _confirmDeleteAlbum();
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'delete',
+                child: Row(
+                  children: [
+                    Icon(Icons.delete_rounded, color: AppColors.error, size: 20),
+                    SizedBox(width: 8),
+                    Text('Delete Album', style: TextStyle(color: AppColors.error)),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -169,28 +238,55 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
       itemCount: _photos.length,
       itemBuilder: (context, index) {
         final photo = _photos[index];
+        final isCover = photo.imageUrl == widget.album.coverUrl;
         return GestureDetector(
           onTap: () => _viewPhoto(index),
           onLongPress: () => _deletePhoto(photo),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: CachedNetworkImage(
-              imageUrl: photo.imageUrl,
-              fit: BoxFit.cover,
-              placeholder: (_, __) => Container(
-                color: AppColors.shimmer,
-                child: const Center(
-                  child: CircularProgressIndicator(strokeWidth: 2),
+          child: Stack(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: CachedNetworkImage(
+                  imageUrl: photo.imageUrl,
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  height: double.infinity,
+                  placeholder: (_, __) => Container(
+                    color: AppColors.shimmer,
+                    child: const Center(
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                  errorWidget: (_, __, ___) => Container(
+                    color: AppColors.border,
+                    child: const Icon(
+                      Icons.broken_image,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
                 ),
               ),
-              errorWidget: (_, __, ___) => Container(
-                color: AppColors.border,
-                child: const Icon(
-                  Icons.broken_image,
-                  color: AppColors.textSecondary,
+              if (isCover)
+                Positioned(
+                  top: 4,
+                  left: 4,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text(
+                      'Cover',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-            ),
+            ],
           ),
         );
       },
@@ -198,12 +294,14 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
   }
 
   void _viewPhoto(int index) {
+    final urls = _photos.map((p) => p.imageUrl).toList();
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => ImageViewScreen(
-          imageUrl: _photos[index].imageUrl,
-          tag: 'album_photo_${_photos[index].id}',
+          imageUrls: urls,
+          initialIndex: index,
+          tag: 'album_photo_${_photos[index].id ?? index}',
         ),
       ),
     );
@@ -232,7 +330,26 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
       ),
     );
     if (confirm == true) {
-      await _chatRepository.deleteAlbumPhoto(widget.album.id!, photo.id!);
+      await _chatRepository.deleteAlbumPhotoWithImage(
+        widget.album.id!,
+        photo.id!,
+        photo.imageUrl,
+      );
+
+      if (photo.imageUrl == widget.album.coverUrl) {
+        final remainingPhotos = _photos.where((p) => p.id != photo.id).toList();
+        if (remainingPhotos.isNotEmpty) {
+          await _chatRepository.updateAlbum(widget.album.id!, {
+            'coverUrl': remainingPhotos.first.imageUrl,
+            'coverImageUrl': remainingPhotos.first.imageUrl,
+          });
+        } else {
+          await _chatRepository.updateAlbum(widget.album.id!, {
+            'coverUrl': '',
+            'coverImageUrl': '',
+          });
+        }
+      }
     }
   }
 }

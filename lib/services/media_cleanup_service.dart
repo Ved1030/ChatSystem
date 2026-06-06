@@ -80,24 +80,22 @@ class MediaCleanupService {
     required String messageId,
     required String mediaUrl,
   }) async {
-    await _firestore
-        .collection(FirebaseConstants.chatRoomsCollection)
-        .doc(chatRoomId)
-        .collection(FirebaseConstants.messagesCollection)
-        .doc(messageId)
-        .update({FirebaseConstants.viewed: true});
-
     final path = _extractPathFromUrl(mediaUrl);
     if (path != null) {
       await _storageService.deleteImage('chat-images', path);
     }
 
-    await _firestore
+    final msgRef = _firestore
         .collection(FirebaseConstants.chatRoomsCollection)
         .doc(chatRoomId)
         .collection(FirebaseConstants.messagesCollection)
-        .doc(messageId)
-        .delete();
+        .doc(messageId);
+
+    await msgRef.update({
+      FirebaseConstants.viewed: true,
+      FirebaseConstants.mediaUrl: FieldValue.delete(),
+      FirebaseConstants.text: 'Photo Opened',
+    });
   }
 
   String? _extractPathFromUrl(String url) {

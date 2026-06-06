@@ -19,6 +19,10 @@ class SupabaseStorageService {
     return result ?? await File(filePath).readAsBytes();
   }
 
+  Future<Uint8List> compressAlbumImage(String filePath, {int quality = 85}) async {
+    return compressImage(filePath, quality: quality);
+  }
+
   void validateFile(String filePath) {
     final file = File(filePath);
     if (!file.existsSync()) {
@@ -56,7 +60,10 @@ class SupabaseStorageService {
       await _client.storage.from(bucket).uploadBinary(
             finalPath,
             bytes,
-            fileOptions: FileOptions(contentType: 'image/$extension'),
+            fileOptions: FileOptions(
+              contentType: 'image/$extension',
+              upsert: true,
+            ),
           );
     } on StorageException catch (e) {
       if (e.message.contains('bucket')) {
@@ -114,6 +121,24 @@ class SupabaseStorageService {
     return uploadAlbumPhotoSupabase(albumId, photoId, filePath);
   }
 
+  Future<String> _uploadBinary({
+    required String bucket,
+    required String path,
+    required List<int> bytes,
+    required String contentType,
+  }) async {
+    await _client.storage.from(bucket).uploadBinary(
+          path,
+          Uint8List.fromList(bytes),
+          fileOptions: FileOptions(
+            contentType: contentType,
+            upsert: true,
+          ),
+        );
+
+    return _client.storage.from(bucket).getPublicUrl(path);
+  }
+
   Future<String> uploadVoiceNote(
     String chatRoomId,
     String messageId,
@@ -122,13 +147,12 @@ class SupabaseStorageService {
     final bytes = await File(filePath).readAsBytes();
     final path = '$chatRoomId/$messageId.m4a';
 
-    await _client.storage.from(SupabaseConstants.voiceNotesBucket).uploadBinary(
-          path,
-          bytes,
-          fileOptions: FileOptions(contentType: 'audio/m4a'),
-        );
-
-    return _client.storage.from(SupabaseConstants.voiceNotesBucket).getPublicUrl(path);
+    return _uploadBinary(
+      bucket: SupabaseConstants.voiceNotesBucket,
+      path: path,
+      bytes: bytes,
+      contentType: 'audio/m4a',
+    );
   }
 
   Future<String> uploadVideo(
@@ -141,13 +165,12 @@ class SupabaseStorageService {
     final extension = filePath.split('.').last.toLowerCase();
     final path = '$chatRoomId/$messageId.$extension';
 
-    await _client.storage.from(SupabaseConstants.videosBucket).uploadBinary(
-          path,
-          bytes,
-          fileOptions: FileOptions(contentType: 'video/$extension'),
-        );
-
-    return _client.storage.from(SupabaseConstants.videosBucket).getPublicUrl(path);
+    return _uploadBinary(
+      bucket: SupabaseConstants.videosBucket,
+      path: path,
+      bytes: bytes,
+      contentType: 'video/$extension',
+    );
   }
 
   Future<String> uploadRawFile({
@@ -156,13 +179,12 @@ class SupabaseStorageService {
     required List<int> bytes,
     required String contentType,
   }) async {
-    await _client.storage.from(bucket).uploadBinary(
-          path,
-          Uint8List.fromList(bytes),
-          fileOptions: FileOptions(contentType: contentType),
-        );
-
-    return _client.storage.from(bucket).getPublicUrl(path);
+    return _uploadBinary(
+      bucket: bucket,
+      path: path,
+      bytes: bytes,
+      contentType: contentType,
+    );
   }
 
   Future<void> deleteFile(String bucket, String path) async {
@@ -173,6 +195,19 @@ class SupabaseStorageService {
 
   Future<void> deleteImage(String bucket, String path) async {
     await deleteFile(bucket, path);
+  }
+
+  Future<void> deleteAlbumImage(String albumId, String photoId) async {
+    final bucket = SupabaseConstants.albumsBucket;
+    final path = '$albumId/$photoId';
+    try {
+      final files = await _client.storage.from(bucket).list(path: albumId);
+      final matching = files.where((f) => f.name.startsWith(photoId));
+      if (matching.isNotEmpty) {
+        final fullPath = '$albumId/${matching.first.name}';
+        await _client.storage.from(bucket).remove([fullPath]);
+      }
+    } catch (_) {}
   }
 
   Future<void> deleteExpiredImage(
@@ -191,7 +226,42 @@ class SupabaseStorageService {
     } catch (_) {}
   }
 
+  Future<void> deleteFolder(String bucket, String folderPath) async {
+    try {
+      final files = await _client.storage.from(bucket).list(path: folderPath);
+      if (files.isEmpty) return;
+
+      final paths = files
+          .where((f) => f.name.isNotEmpty)
+          .map((f) => '$folderPath/${f.name}')
+          .toList();
+
+      if (paths.isNotEmpty) {
+        await _client.storage.from(bucket).remove(paths);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> deleteAlbumFolder(String albumId) async {
+    await deleteFolder(SupabaseConstants.albumsBucket, albumId);
+  }
+
+  String? extractStoragePath(String publicUrl, String bucket) {
+    final prefix = '/public/$bucket/';
+    final index = publicUrl.indexOf(prefix);
+    if (index == -1) return null;
+    return publicUrl.substring(index + prefix.length);
+  }
+
+  String? extractAlbumImagePath(String publicUrl) {
+    return extractStoragePath(publicUrl, SupabaseConstants.albumsBucket);
+  }
+
   String getPublicUrl(String bucket, String path) {
     return _client.storage.from(bucket).getPublicUrl(path);
+  }
+
+  String getAlbumImageUrl(String albumId, String photoId) {
+    return getPublicUrl(SupabaseConstants.albumsBucket, '$albumId/$photoId');
   }
 }

@@ -57,6 +57,20 @@ async function processNewMessage(messageData, messageId) {
   const { senderId, receiverId, text, messageType } = messageData;
   let roomId = messageData.roomId;
 
+  if (roomId && messageId) {
+    try {
+      const db = getDb();
+      const msgRef = db
+        .collection('chat_rooms')
+        .doc(roomId)
+        .collection('messages')
+        .doc(messageId);
+      await msgRef.update({
+        notificationAttemptedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    } catch (_) {}
+  }
+
   const [receiver, roomData, senderName] = await Promise.all([
     getReceiverInfo(receiverId),
     roomId ? getChatRoomInfo(roomId) : Promise.resolve(null),
@@ -153,6 +167,8 @@ function listenForNewMessages() {
             const messageData = change.doc.data();
             const messageId = change.doc.id;
             const roomId = change.doc.ref.path.split('/')[1];
+
+            if (messageData.notificationAttemptedAt) return;
 
             const senderId = messageData.senderId;
             const receiverId = messageData.receiverId;

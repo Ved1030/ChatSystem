@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../core/constants/app_colors.dart';
@@ -61,6 +62,9 @@ class _ChatScreenState extends State<ChatScreen> {
   String? _nickname;
   bool _isSending = false;
 
+  MessageModel? _replyToMessage;
+  String? _highlightedMessageId;
+
   List<MessageModel> _messages = [];
   final Set<String> _processedStatusIds = {};
   StreamSubscription<List<MessageModel>>? _messagesSub;
@@ -95,13 +99,19 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _onScroll() {
+    _updateNearBottom();
+  }
+
+  void _updateNearBottom() {
     if (!_scrollController.hasClients) return;
-    final distanceFromBottom =
-        _scrollController.position.maxScrollExtent -
-        _scrollController.position.pixels;
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    final currentScroll = _scrollController.position.pixels;
+    final distanceFromBottom = maxScroll - currentScroll;
     final isNearBottom = distanceFromBottom < 200;
     if (isNearBottom != _isNearBottom) {
-      _isNearBottom = isNearBottom;
+      setState(() {
+        _isNearBottom = isNearBottom;
+      });
     }
   }
 
@@ -208,9 +218,8 @@ class _ChatScreenState extends State<ChatScreen> {
           final prevLastMsgId = _messages.isNotEmpty ? _messages.last.id : null;
 
           if (!mounted) return;
-          setState(() {
-            _messages = messages;
-          });
+
+          bool hasResetUnread = false;
 
           for (final msg in messages) {
             if (msg.senderId != currentUid && msg.id != null) {
@@ -230,9 +239,24 @@ class _ChatScreenState extends State<ChatScreen> {
                     'read',
                   );
                 }
+                if (_hasMarkedRead && !hasResetUnread) {
+                  hasResetUnread = true;
+                  _chatRepository.resetUnreadCount(
+                    _chatRoomId!,
+                    currentUid,
+                  );
+                }
               }
             }
           }
+
+          setState(() {
+            _messages = messages;
+          });
+
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _updateNearBottom();
+          });
 
           final shouldScroll = wasEmpty && messages.isNotEmpty ||
               (messages.isNotEmpty &&
@@ -302,7 +326,9 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
 
+    final reply = _replyToMessage;
     _messageController.clear();
+    _cancelReply();
     if (_chatRoomId != null) {
       _typingService.stopTyping(_chatRoomId!, FirebaseAuth.instance.currentUser!.uid);
     }
@@ -314,14 +340,9 @@ class _ChatScreenState extends State<ChatScreen> {
       senderId: currentUid,
       receiverId: widget.receiverId,
       text: text,
-    );
-
-    NotificationService().notifyBackend(
-      senderId: currentUid,
-      receiverId: widget.receiverId,
-      roomId: _chatRoomId!,
-      message: text,
-      messageType: 'text',
+      replyToMessageId: reply?.id,
+      replyToText: reply?.replyToText,
+      replyToSender: reply?.replyToSender,
     );
 
     if (mounted) setState(() => _isSending = false);
@@ -565,14 +586,6 @@ class _ChatScreenState extends State<ChatScreen> {
         expiresAt: expiresAt,
       );
 
-      NotificationService().notifyBackend(
-        senderId: currentUid,
-        receiverId: widget.receiverId,
-        roomId: _chatRoomId!,
-        message: mode == 'view_once' ? 'View Once Image' : 'Image',
-        messageType: 'image',
-      );
-
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (_scrollController.hasClients) {
           _scrollController.animateTo(
@@ -644,6 +657,32 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ),
               const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.reply_rounded, color: AppColors.primary),
+                title: const Text('Reply'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _setReplyTo(message);
+                },
+              ),
+              if (!message.isViewOnce && !message.isImage)
+                ListTile(
+                  leading: const Icon(Icons.copy_rounded, color: AppColors.textSecondary),
+                  title: const Text('Copy'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    Clipboard.setData(ClipboardData(text: message.text));
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Copied to clipboard'),
+                          duration: Duration(seconds: 1),
+                        ),
+                      );
+                    }
+                  },
+                ),
+              const Divider(),
               if (isMyMessage && !message.isViewOnce)
                 ListTile(
                   leading: const Icon(Icons.delete, color: AppColors.error),
@@ -799,6 +838,46 @@ class _ChatScreenState extends State<ChatScreen> {
       message.id!,
       currentUid,
     );
+  }
+
+  void _setReplyTo(MessageModel message) {
+    final currentUid = FirebaseAuth.instance.currentUser!.uid;
+    final displayName = _nickname ?? _receiverUsername ?? widget.receiverName;
+    setState(() {
+      _replyToMessage = MessageModel(
+        id: message.id,
+        senderId: message.senderId == currentUid ? currentUid : widget.receiverId,
+        receiverId: message.senderId == currentUid ? widget.receiverId : currentUid,
+        text: message.text,
+        timestamp: message.timestamp,
+        replyToMessageId: message.id,
+        replyToText: message.text.isNotEmpty ? message.text : (message.isImage ? 'Image' : 'Message'),
+        replyToSender: message.senderId == currentUid ? 'You' : displayName,
+      );
+    });
+  }
+
+  void _cancelReply() {
+    setState(() => _replyToMessage = null);
+  }
+
+  void _scrollToMessage(String messageId) {
+    final index = _messages.indexWhere((m) => m.id == messageId);
+    if (index == -1) return;
+
+    final estimatedOffset = index * 80.0;
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        estimatedOffset.clamp(0, _scrollController.position.maxScrollExtent),
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    }
+
+    setState(() => _highlightedMessageId = messageId);
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _highlightedMessageId = null);
+    });
   }
 
   Future<void> _openChatInfo() async {
@@ -997,8 +1076,78 @@ class _ChatScreenState extends State<ChatScreen> {
             ],
           ),
         ),
+        if (_replyToMessage != null) _buildReplyPreview(),
         _buildMessageInput(),
       ],
+    );
+  }
+
+  Widget _buildReplyPreview() {
+    final reply = _replyToMessage!;
+    final currentUid = FirebaseAuth.instance.currentUser!.uid;
+    final displayName = _nickname ?? _receiverUsername ?? widget.receiverName;
+    final senderName = reply.senderId == currentUid ? 'You' : displayName;
+    final replyText = reply.replyToText ?? reply.text;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 8, 0),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        border: Border(
+          top: BorderSide(
+            color: AppColors.border.withValues(alpha: 0.5),
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 3,
+            height: 40,
+            decoration: BoxDecoration(
+              color: AppColors.primary,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Replying to $senderName',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.primary,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  replyText,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: AppColors.textSecondary,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: _cancelReply,
+            icon: const Icon(
+              Icons.close_rounded,
+              size: 20,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1060,6 +1209,11 @@ class _ChatScreenState extends State<ChatScreen> {
             isMe: msg.senderId == currentUid,
             onLongPress: () => _onMessageLongPress(msg),
             onViewOnceOpened: () => _handleViewOnceOpened(msg),
+            onReplyTap: msg.replyToMessageId != null
+                ? () => _scrollToMessage(msg.replyToMessageId!)
+                : null,
+            onSwipeToReply: () => _setReplyTo(msg),
+            isHighlighted: _highlightedMessageId == msg.id,
           );
         },
       ),

@@ -296,6 +296,8 @@ class _ChatRoomTileState extends State<_ChatRoomTile> {
   final UserRepository _userRepository = UserRepository();
   UserModel? _otherUser;
   late final String _otherUid;
+  int _computedUnreadCount = 0;
+  StreamSubscription<int>? _unreadSub;
 
   @override
   void initState() {
@@ -304,6 +306,34 @@ class _ChatRoomTileState extends State<_ChatRoomTile> {
       (id) => id != widget.currentUid,
     );
     _loadOtherUser();
+    _setupUnreadCount();
+  }
+
+  @override
+  void didUpdateWidget(_ChatRoomTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.room.id != widget.room.id) {
+      _setupUnreadCount();
+    }
+  }
+
+  @override
+  void dispose() {
+    _unreadSub?.cancel();
+    super.dispose();
+  }
+
+  void _setupUnreadCount() {
+    _unreadSub?.cancel();
+    _unreadSub = _chatRepository
+        .unreadCountStream(
+          widget.room.id,
+          widget.currentUid,
+          _otherUid,
+        )
+        .listen((count) {
+          if (mounted) setState(() => _computedUnreadCount = count);
+        });
   }
 
   Future<void> _loadOtherUser() async {
@@ -395,17 +425,17 @@ class _ChatRoomTileState extends State<_ChatRoomTile> {
           size: 28,
         ),
       ),
-      child: GestureDetector(
-        onLongPress: widget.onLongPress,
-        child: ChatTile(
-          user: _otherUser!,
-          lastMessage: widget.room.lastMessage,
-          lastMessageTime: widget.room.lastMessageTime,
-          unreadCount: widget.room.unreadCounts[widget.currentUid] ?? 0,
-          nickname: widget.room.nicknameFor(_otherUid),
-          onTap: _openChat,
+        child: GestureDetector(
+          onLongPress: widget.onLongPress,
+          child: ChatTile(
+            user: _otherUser!,
+            lastMessage: widget.room.lastMessage,
+            lastMessageTime: widget.room.lastMessageTime,
+            unreadCount: _computedUnreadCount,
+            nickname: widget.room.nicknameFor(_otherUid),
+            onTap: _openChat,
+          ),
         ),
-      ),
     );
   }
 

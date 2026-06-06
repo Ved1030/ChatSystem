@@ -76,7 +76,7 @@ class _MemoriesScreenState extends State<MemoriesScreen> {
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () => _showAddAlbumDialog(),
+          onPressed: () { _showAddAlbumDialog(); },
         child: const Icon(Icons.add_rounded),
       ),
     );
@@ -171,8 +171,26 @@ class _MemoriesScreenState extends State<MemoriesScreen> {
     );
   }
 
-  void _showAddAlbumDialog() {
-    showDialog(context: context, builder: (ctx) => const _AddAlbumDialog());
+  Future<void> _showAddAlbumDialog() async {
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => const _AddAlbumDialog(),
+    );
+    if (result == null || !mounted) return;
+
+    final currentUid = FirebaseAuth.instance.currentUser!.uid;
+    final album = AlbumModel(
+      participants: [currentUid],
+      creatorId: currentUid,
+      coverUrl: '',
+      title: result['title'] as String,
+      description: result['description'] as String? ?? '',
+      isPrivate: result['isPrivate'] as bool? ?? false,
+      pin: result['pin'] as String?,
+      createdAt: DateTime.now(),
+    );
+
+    await _chatRepository.addAlbum(album);
   }
 }
 

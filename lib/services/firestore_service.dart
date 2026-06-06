@@ -147,13 +147,6 @@ class FirestoreService {
       }).toList();
 
       messages = messages.where((msg) {
-        if (msg.isViewOnce && msg.viewed && msg.senderId != currentUid) {
-          return false;
-        }
-        return true;
-      }).toList();
-
-      messages = messages.where((msg) {
         if (msg.isTemporary && msg.isExpired) return false;
         return true;
       }).toList();
@@ -177,6 +170,9 @@ class FirestoreService {
     String? imageMode,
     String? mediaUrl,
     DateTime? expiresAt,
+    String? replyToMessageId,
+    String? replyToText,
+    String? replyToSender,
   }) async {
     final message = MessageModel(
       senderId: senderId,
@@ -187,6 +183,9 @@ class FirestoreService {
       imageMode: imageMode,
       mediaUrl: mediaUrl,
       expiresAt: expiresAt,
+      replyToMessageId: replyToMessageId,
+      replyToText: replyToText,
+      replyToSender: replyToSender,
     );
 
     await messagesRef(chatRoomId).add(message.toMap());
@@ -319,11 +318,12 @@ class FirestoreService {
     });
   }
 
-  Future<void> addAlbumPhoto(String albumId, AlbumPhotoModel photo) async {
-    await albumPhotosRef(albumId).add(photo.toMap());
+  Future<String> addAlbumPhoto(String albumId, AlbumPhotoModel photo) async {
+    final docRef = await albumPhotosRef(albumId).add(photo.toMap());
     await albumDoc(
       albumId,
     ).update({FirebaseConstants.photoCount: FieldValue.increment(1)});
+    return docRef.id;
   }
 
   Future<void> deleteAlbumPhoto(String albumId, String photoId) async {
@@ -331,6 +331,15 @@ class FirestoreService {
     await albumDoc(
       albumId,
     ).update({FirebaseConstants.photoCount: FieldValue.increment(-1)});
+  }
+
+  Future<void> deleteAllAlbumPhotos(String albumId) async {
+    final snapshot = await albumPhotosRef(albumId).get();
+    final batch = _firestore.batch();
+    for (final doc in snapshot.docs) {
+      batch.delete(doc.reference);
+    }
+    await batch.commit();
   }
 
   Stream<List<PlanModel>> plansStream(String currentUid) {
@@ -383,15 +392,16 @@ class FirestoreService {
     String currentUid,
     String otherUid,
   ) async {
-    final unread = await messagesRef(chatRoomId)
+    final snapshot = await messagesRef(chatRoomId)
         .where(FirebaseConstants.senderId, isEqualTo: otherUid)
-        .where('status', isNotEqualTo: 'read')
         .get();
 
-    final batch = _firestore.batch();
-    for (final doc in unread.docs) {
+    var batch = _firestore.batch();
+    int count = 0;
+    for (final doc in snapshot.docs) {
       final docData = doc.data() as Map<String, dynamic>?;
       final docStatus = docData?['status'] as String? ?? 'sent';
+      if (docStatus == 'read') continue;
       final updates = <String, dynamic>{
         'status': 'read',
         'readAt': FieldValue.serverTimestamp(),
@@ -400,8 +410,15 @@ class FirestoreService {
         updates['deliveredAt'] = FieldValue.serverTimestamp();
       }
       batch.update(doc.reference, updates);
+      count++;
+      if (count % 400 == 0) {
+        await batch.commit();
+        batch = _firestore.batch();
+      }
     }
-    await batch.commit();
+    if (count > 0) {
+      await batch.commit();
+    }
 
     await chatRoomDoc(
       chatRoomId,
@@ -418,9 +435,8 @@ class FirestoreService {
             final data = doc.data() as Map<String, dynamic>;
             final messageType = data['messageType'] as String?;
             final imageMode = data['imageMode'] as String?;
-            final viewed = data['viewed'] as bool? ?? false;
 
-            if (imageMode == 'view_once' && viewed) continue;
+            if (imageMode == 'view_once') continue;
             if (imageMode == 'temporary') {
               final expiresAt =
                   (data['expiresAt'] as Timestamp?)?.toDate();
@@ -518,5 +534,29 @@ class FirestoreService {
     await chatRoomDoc(
       chatRoomId,
     ).update({'${FirebaseConstants.unreadCounts}.$currentUid': 0});
+  }
+
+  Stream<int> unreadCountStream(
+    String chatRoomId,
+    String currentUid,
+    String otherUid,
+  ) {
+    return messagesRef(chatRoomId)
+        .where(FirebaseConstants.senderId, isEqualTo: otherUid)
+        .snapshots()
+        .map((snapshot) {
+          int count = 0;
+          for (final doc in snapshot.docs) {
+            final data = doc.data() as Map<String, dynamic>;
+            if (data['isDeleted'] == true) continue;
+            final deletedFor = data['deletedForUsers'] as List<dynamic>?;
+            if (deletedFor != null && deletedFor.contains(currentUid)) continue;
+            final status = data['status'] as String? ?? 'sent';
+            if (status != 'read') {
+              count++;
+            }
+          }
+          return count;
+        });
   }
 }

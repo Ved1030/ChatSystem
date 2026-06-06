@@ -133,7 +133,8 @@ class _ChatMediaScreenState extends State<ChatMediaScreen> {
       context,
       MaterialPageRoute(
         builder: (_) => ImageViewScreen(
-          imageUrl: _imageUrls[index],
+          imageUrls: _imageUrls,
+          initialIndex: index,
           tag: 'media_grid_${_imageUrls[index]}',
         ),
       ),

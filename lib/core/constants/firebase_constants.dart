@@ -50,6 +50,9 @@ class FirebaseConstants {
   static const String mediaUrl = 'mediaUrl';
   static const String expiresAt = 'expiresAt';
   static const String viewed = 'viewed';
+  static const String replyToMessageId = 'replyToMessageId';
+  static const String replyToText = 'replyToText';
+  static const String replyToSender = 'replyToSender';
   static const String fcmToken = 'fcmToken';
   static const String notificationsEnabled = 'notificationsEnabled';
   static const String mutedUntil = 'mutedUntil';

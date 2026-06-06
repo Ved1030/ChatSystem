@@ -17,6 +17,9 @@ class MessageModel {
   final String? mediaUrl;
   final DateTime? expiresAt;
   final bool viewed;
+  final String? replyToMessageId;
+  final String? replyToText;
+  final String? replyToSender;
 
   const MessageModel({
     this.id,
@@ -35,6 +38,9 @@ class MessageModel {
     this.mediaUrl,
     this.expiresAt,
     this.viewed = false,
+    this.replyToMessageId,
+    this.replyToText,
+    this.replyToSender,
   });
 
   bool get isSent => status == 'sent';
@@ -78,6 +84,9 @@ class MessageModel {
       mediaUrl: map['mediaUrl'] as String?,
       expiresAt: (map['expiresAt'] as Timestamp?)?.toDate(),
       viewed: map['viewed'] as bool? ?? false,
+      replyToMessageId: map['replyToMessageId'] as String?,
+      replyToText: map['replyToText'] as String?,
+      replyToSender: map['replyToSender'] as String?,
     );
   }
 
@@ -98,6 +107,9 @@ class MessageModel {
       'mediaUrl': mediaUrl,
       'expiresAt': expiresAt != null ? Timestamp.fromDate(expiresAt!) : null,
       'viewed': viewed,
+      'replyToMessageId': replyToMessageId,
+      'replyToText': replyToText,
+      'replyToSender': replyToSender,
     };
   }
 
@@ -118,6 +130,9 @@ class MessageModel {
     String? mediaUrl,
     DateTime? expiresAt,
     bool? viewed,
+    String? replyToMessageId,
+    String? replyToText,
+    String? replyToSender,
   }) {
     return MessageModel(
       id: id ?? this.id,
@@ -136,6 +151,9 @@ class MessageModel {
       mediaUrl: mediaUrl ?? this.mediaUrl,
       expiresAt: expiresAt ?? this.expiresAt,
       viewed: viewed ?? this.viewed,
+      replyToMessageId: replyToMessageId ?? this.replyToMessageId,
+      replyToText: replyToText ?? this.replyToText,
+      replyToSender: replyToSender ?? this.replyToSender,
     );
   }
 }

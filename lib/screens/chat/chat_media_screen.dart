@@ -1,9 +1,11 @@
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../repositories/chat_repository.dart';
+import '../media/image_view_screen.dart';
 
 class ChatMediaScreen extends StatefulWidget {
   final String chatRoomId;
@@ -102,10 +104,16 @@ class _ChatMediaScreenState extends State<ChatMediaScreen> {
                   onTap: () => _viewImage(index),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: Image.network(
-                      _imageUrls[index],
+                    child: CachedNetworkImage(
+                      imageUrl: _imageUrls[index],
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Container(
+                      placeholder: (_, __) => Container(
+                        color: AppColors.shimmer,
+                        child: const Center(
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                      errorWidget: (_, __, ___) => Container(
                         color: AppColors.border,
                         child: const Icon(
                           Icons.broken_image,
@@ -121,32 +129,12 @@ class _ChatMediaScreenState extends State<ChatMediaScreen> {
   }
 
   void _viewImage(int index) {
-    showDialog(
-      context: context,
-      builder: (ctx) => Dialog(
-        backgroundColor: Colors.black,
-        child: Stack(
-          children: [
-            Image.network(
-              _imageUrls[index],
-              fit: BoxFit.contain,
-              errorBuilder: (_, __, ___) => const Center(
-                child: Icon(
-                  Icons.broken_image,
-                  color: Colors.white54,
-                  size: 48,
-                ),
-              ),
-            ),
-            Positioned(
-              top: 8,
-              right: 8,
-              child: IconButton(
-                icon: const Icon(Icons.close_rounded, color: Colors.white),
-                onPressed: () => Navigator.pop(ctx),
-              ),
-            ),
-          ],
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ImageViewScreen(
+          imageUrl: _imageUrls[index],
+          tag: 'media_grid_${_imageUrls[index]}',
         ),
       ),
     );

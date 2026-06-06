@@ -146,6 +146,18 @@ class FirestoreService {
         return !msg.deletedForUsers.contains(currentUid);
       }).toList();
 
+      messages = messages.where((msg) {
+        if (msg.isViewOnce && msg.viewed && msg.senderId != currentUid) {
+          return false;
+        }
+        return true;
+      }).toList();
+
+      messages = messages.where((msg) {
+        if (msg.isTemporary && msg.isExpired) return false;
+        return true;
+      }).toList();
+
       if (clearedAt != null) {
         messages = messages.where((msg) {
           return msg.timestamp.isAfter(clearedAt);
@@ -161,18 +173,30 @@ class FirestoreService {
     required String senderId,
     required String receiverId,
     required String text,
+    String messageType = 'text',
+    String? imageMode,
+    String? mediaUrl,
+    DateTime? expiresAt,
   }) async {
     final message = MessageModel(
       senderId: senderId,
       receiverId: receiverId,
       text: text,
       timestamp: DateTime.now(),
+      messageType: messageType,
+      imageMode: imageMode,
+      mediaUrl: mediaUrl,
+      expiresAt: expiresAt,
     );
 
     await messagesRef(chatRoomId).add(message.toMap());
 
+    final displayText = messageType == 'image'
+        ? (imageMode == 'view_once' ? 'View Once Image' : 'Image')
+        : text;
+
     await chatRoomDoc(chatRoomId).update({
-      FirebaseConstants.lastMessage: text,
+      FirebaseConstants.lastMessage: displayText,
       FirebaseConstants.lastMessageTime: FieldValue.serverTimestamp(),
     });
 
@@ -341,9 +365,13 @@ class FirestoreService {
   Future<void> updateMessageStatus(
     String chatRoomId,
     String messageId,
-    String status,
-  ) async {
+    String status, {
+    bool setDeliveredAt = false,
+  }) async {
     final data = <String, dynamic>{'status': status};
+    if (status == 'delivered' || setDeliveredAt) {
+      data['deliveredAt'] = FieldValue.serverTimestamp();
+    }
     if (status == 'read') {
       data['readAt'] = FieldValue.serverTimestamp();
     }
@@ -362,10 +390,16 @@ class FirestoreService {
 
     final batch = _firestore.batch();
     for (final doc in unread.docs) {
-      batch.update(doc.reference, {
+      final docData = doc.data() as Map<String, dynamic>?;
+      final docStatus = docData?['status'] as String? ?? 'sent';
+      final updates = <String, dynamic>{
         'status': 'read',
         'readAt': FieldValue.serverTimestamp(),
-      });
+      };
+      if (docStatus == 'sent') {
+        updates['deliveredAt'] = FieldValue.serverTimestamp();
+      }
+      batch.update(doc.reference, updates);
     }
     await batch.commit();
 
@@ -382,9 +416,29 @@ class FirestoreService {
           final urls = <String>[];
           for (final doc in snapshot.docs) {
             final data = doc.data() as Map<String, dynamic>;
-            final text = data['text'] as String? ?? '';
-            if (_isImageUrl(text) && !urls.contains(text)) {
-              urls.add(text);
+            final messageType = data['messageType'] as String?;
+            final imageMode = data['imageMode'] as String?;
+            final viewed = data['viewed'] as bool? ?? false;
+
+            if (imageMode == 'view_once' && viewed) continue;
+            if (imageMode == 'temporary') {
+              final expiresAt =
+                  (data['expiresAt'] as Timestamp?)?.toDate();
+              if (expiresAt != null && DateTime.now().isAfter(expiresAt)) {
+                continue;
+              }
+            }
+
+            if (messageType == 'image') {
+              final mediaUrl = data['mediaUrl'] as String?;
+              if (mediaUrl != null && mediaUrl.isNotEmpty && !urls.contains(mediaUrl)) {
+                urls.add(mediaUrl);
+              }
+            } else {
+              final text = data['text'] as String? ?? '';
+              if (_isImageUrl(text) && !urls.contains(text)) {
+                urls.add(text);
+              }
             }
           }
           return urls;
@@ -400,7 +454,8 @@ class FirestoreService {
             lower.endsWith('.gif') ||
             lower.endsWith('.webp') ||
             lower.endsWith('.bmp') ||
-            lower.contains('firebasestorage.googleapis.com'));
+            lower.contains('firebasestorage.googleapis.com') ||
+            lower.contains('supabase'));
   }
 
   Future<ChatRoomModel?> getChatRoom(String chatRoomId) async {
@@ -417,6 +472,37 @@ class FirestoreService {
     Map<String, dynamic> data,
   ) async {
     await chatRoomDoc(chatRoomId).update(data);
+  }
+
+  Future<void> deliverIncomingMessages(
+    String currentUid,
+    List<String> chatRoomIds,
+  ) async {
+    var batch = _firestore.batch();
+    int count = 0;
+
+    for (final roomId in chatRoomIds) {
+      final snapshot = await messagesRef(roomId)
+          .where(FirebaseConstants.receiverId, isEqualTo: currentUid)
+          .where('status', isEqualTo: 'sent')
+          .get();
+
+      for (final doc in snapshot.docs) {
+        if (count > 0 && count % 400 == 0) {
+          await batch.commit();
+          batch = _firestore.batch();
+        }
+        batch.update(doc.reference, {
+          'status': 'delivered',
+          'deliveredAt': FieldValue.serverTimestamp(),
+        });
+        count++;
+      }
+    }
+
+    if (count > 0) {
+      await batch.commit();
+    }
   }
 
   Future<void> incrementUnreadCount(

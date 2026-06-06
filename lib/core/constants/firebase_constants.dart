@@ -45,4 +45,12 @@ class FirebaseConstants {
   static const String deadline = 'deadline';
   static const String wallpaper = 'wallpaper';
   static const String nicknames = 'nicknames';
+  static const String messageType = 'messageType';
+  static const String imageMode = 'imageMode';
+  static const String mediaUrl = 'mediaUrl';
+  static const String expiresAt = 'expiresAt';
+  static const String viewed = 'viewed';
+  static const String fcmToken = 'fcmToken';
+  static const String notificationsEnabled = 'notificationsEnabled';
+  static const String mutedUntil = 'mutedUntil';
 }

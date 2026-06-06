@@ -43,6 +43,8 @@ class _ChatsTabState extends State<ChatsTab> {
     super.dispose();
   }
 
+  final Set<String> _deliveredRoomIds = {};
+
   void _listen() {
     final currentUid = FirebaseAuth.instance.currentUser!.uid;
 
@@ -52,6 +54,12 @@ class _ChatsTabState extends State<ChatsTab> {
           _allRooms = rooms;
           _loading = false;
         });
+      }
+      final roomIds = rooms.map((r) => r.id).toList();
+      final newRooms = roomIds.where((id) => !_deliveredRoomIds.contains(id)).toList();
+      if (newRooms.isNotEmpty) {
+        _deliveredRoomIds.addAll(newRooms);
+        _chatRepository.deliverIncomingMessages(currentUid, newRooms);
       }
     });
 

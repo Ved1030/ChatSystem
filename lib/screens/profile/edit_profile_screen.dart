@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../providers/auth_provider.dart';
-import '../../services/storage_service.dart';
+import '../../services/supabase_storage_service.dart';
 import '../../widgets/custom_button.dart';
 import '../../widgets/custom_textfield.dart';
 import '../../widgets/profile_avatar.dart';
@@ -19,7 +20,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   final _formKey = GlobalKey<FormState>();
   final nameController = TextEditingController();
   final usernameController = TextEditingController();
-  final StorageService _storageService = StorageService();
+  final SupabaseStorageService _storageService = SupabaseStorageService();
   final ImagePicker _imagePicker = ImagePicker();
 
   String? _photoUrl;
@@ -45,15 +46,81 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Future<void> _pickImage() async {
+    final source = await showModalBottomSheet<String>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Change Profile Photo',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.camera_alt_rounded),
+                title: const Text('Take Photo'),
+                onTap: () => Navigator.pop(ctx, 'camera'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_rounded),
+                title: const Text('Choose from Gallery'),
+                onTap: () => Navigator.pop(ctx, 'gallery'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (source == null) return;
+
     final XFile? image = await _imagePicker.pickImage(
-      source: ImageSource.gallery,
+      source: source == 'camera' ? ImageSource.camera : ImageSource.gallery,
       imageQuality: 80,
-      maxWidth: 512,
-      maxHeight: 512,
+      maxWidth: 1024,
+      maxHeight: 1024,
     );
 
     if (image != null) {
-      setState(() => _newPhotoPath = image.path);
+      final croppedFile = await ImageCropper().cropImage(
+        sourcePath: image.path,
+        uiSettings: [
+          AndroidUiSettings(
+            toolbarTitle: 'Crop Profile Photo',
+            toolbarColor: Colors.deepPurple,
+            toolbarWidgetColor: Colors.white,
+            initAspectRatio: CropAspectRatioPreset.square,
+            lockAspectRatio: true,
+          ),
+          IOSUiSettings(
+            title: 'Crop Profile Photo',
+            aspectRatioPresets: [
+              CropAspectRatioPreset.square,
+            ],
+          ),
+        ],
+      );
+      if (croppedFile != null) {
+        setState(() => _newPhotoPath = croppedFile.path);
+      }
     }
   }
 

@@ -53,13 +53,23 @@ service cloud.firestore {
 
         allow create: if isRoomParticipant(roomId) &&
           request.resource.data.senderId == request.auth.uid &&
-          request.resource.data.text is string &&
-          request.resource.data.text.size() > 0;
+          (
+            (request.resource.data.messageType == 'text' &&
+             request.resource.data.text is string &&
+             request.resource.data.text.size() > 0)
+            ||
+            (request.resource.data.messageType == 'image' &&
+             request.resource.data.mediaUrl is string &&
+             request.resource.data.mediaUrl.size() > 0)
+          );
 
         allow update: if isRoomParticipant(roomId) && (
           request.resource.data.keys().hasOnly(['status', 'readAt']) ||
           request.resource.data.keys().hasOnly(['isDeleted', 'deletedAt']) ||
-          request.resource.data.keys().hasOnly(['deletedForUsers'])
+          request.resource.data.keys().hasOnly(['deletedForUsers']) ||
+          request.resource.data.keys().hasOnly(['viewed']) ||
+          request.resource.data.keys().hasAll(['viewed']) ||
+          request.resource.data.keys().hasAny(['status', 'readAt', 'isDeleted', 'deletedAt', 'deletedForUsers', 'viewed'])
         );
 
         allow delete: if false;

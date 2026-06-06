@@ -33,11 +33,19 @@ class ChatRepository {
     required String senderId,
     required String receiverId,
     required String text,
+    String messageType = 'text',
+    String? imageMode,
+    String? mediaUrl,
+    DateTime? expiresAt,
   }) => _firestoreService.sendMessage(
     chatRoomId: chatRoomId,
     senderId: senderId,
     receiverId: receiverId,
     text: text,
+    messageType: messageType,
+    imageMode: imageMode,
+    mediaUrl: mediaUrl,
+    expiresAt: expiresAt,
   );
 
   Future<void> deleteMessageForEveryone(String chatRoomId, String messageId) =>
@@ -60,6 +68,11 @@ class ChatRepository {
 
   Stream<List<AlbumModel>> albumsStream(String currentUid) =>
       _firestoreService.albumsStream(currentUid);
+
+  Future<void> deliverIncomingMessages(
+    String currentUid,
+    List<String> chatRoomIds,
+  ) => _firestoreService.deliverIncomingMessages(currentUid, chatRoomIds);
 
   Future<String> addAlbum(AlbumModel album) =>
       _firestoreService.addAlbum(album);
@@ -93,8 +106,14 @@ class ChatRepository {
   Future<void> updateMessageStatus(
     String chatRoomId,
     String messageId,
-    String status,
-  ) => _firestoreService.updateMessageStatus(chatRoomId, messageId, status);
+    String status, {
+    bool setDeliveredAt = false,
+  }) => _firestoreService.updateMessageStatus(
+    chatRoomId,
+    messageId,
+    status,
+    setDeliveredAt: setDeliveredAt,
+  );
 
   Future<void> markAllMessagesAsRead(
     String chatRoomId,

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -217,10 +218,11 @@ class _AlbumCard extends StatelessWidget {
                           width: double.infinity,
                           color: color.withValues(alpha: 0.15),
                           child: album.coverUrl.isNotEmpty
-                              ? Image.network(
-                                  album.coverUrl,
+                              ? CachedNetworkImage(
+                                  imageUrl: album.coverUrl,
                                   fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) =>
+                                  placeholder: (_, __) => _coverPlaceholder(color),
+                                  errorWidget: (_, __, ___) =>
                                       _coverPlaceholder(color),
                                 )
                               : _coverPlaceholder(color),

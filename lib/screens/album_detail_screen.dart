@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -7,7 +8,8 @@ import 'package:image_picker/image_picker.dart';
 import '../core/constants/app_colors.dart';
 import '../models/album_model.dart';
 import '../repositories/chat_repository.dart';
-import '../services/storage_service.dart';
+import '../services/supabase_storage_service.dart';
+import '../screens/media/image_view_screen.dart';
 
 class AlbumDetailScreen extends StatefulWidget {
   final AlbumModel album;
@@ -20,7 +22,7 @@ class AlbumDetailScreen extends StatefulWidget {
 
 class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
   final ChatRepository _chatRepository = ChatRepository();
-  final StorageService _storageService = StorageService();
+  final SupabaseStorageService _storageService = SupabaseStorageService();
   final ImagePicker _imagePicker = ImagePicker();
 
   List<AlbumPhotoModel> _photos = [];
@@ -69,7 +71,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
 
       final photoId = DateTime.now().millisecondsSinceEpoch.toString();
 
-      final imageUrl = await _storageService.uploadAlbumPhoto(
+      final imageUrl = await _storageService.uploadAlbumPhotoSupabase(
         albumId,
         photoId,
         picked.path,
@@ -172,10 +174,16 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
           onLongPress: () => _deletePhoto(photo),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
-            child: Image.network(
-              photo.imageUrl,
+            child: CachedNetworkImage(
+              imageUrl: photo.imageUrl,
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Container(
+              placeholder: (_, __) => Container(
+                color: AppColors.shimmer,
+                child: const Center(
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+              errorWidget: (_, __, ___) => Container(
                 color: AppColors.border,
                 child: const Icon(
                   Icons.broken_image,
@@ -190,32 +198,12 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
   }
 
   void _viewPhoto(int index) {
-    showDialog(
-      context: context,
-      builder: (ctx) => Dialog(
-        backgroundColor: Colors.black,
-        child: Stack(
-          children: [
-            Image.network(
-              _photos[index].imageUrl,
-              fit: BoxFit.contain,
-              errorBuilder: (_, __, ___) => const Center(
-                child: Icon(
-                  Icons.broken_image,
-                  color: Colors.white54,
-                  size: 48,
-                ),
-              ),
-            ),
-            Positioned(
-              top: 8,
-              right: 8,
-              child: IconButton(
-                icon: const Icon(Icons.close_rounded, color: Colors.white),
-                onPressed: () => Navigator.pop(ctx),
-              ),
-            ),
-          ],
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ImageViewScreen(
+          imageUrl: _photos[index].imageUrl,
+          tag: 'album_photo_${_photos[index].id}',
         ),
       ),
     );

@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../core/constants/app_colors.dart';
@@ -29,7 +30,7 @@ class ProfileAvatar extends StatelessWidget {
           height: radius * 2,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            gradient: _resolveImage() == null
+            gradient: _hasImage() == null
                 ? LinearGradient(
                     colors: [
                       AppColors.primary.withValues(alpha: 0.8),
@@ -49,15 +50,7 @@ class ProfileAvatar extends StatelessWidget {
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(radius),
-            child: _resolveImage() != null
-                ? Image(
-                    image: _resolveImage()!,
-                    width: radius * 2,
-                    height: radius * 2,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => _buildInitial(),
-                  )
-                : _buildInitial(),
+            child: _buildImage(),
           ),
         ),
         if (showOnlineDot)
@@ -86,6 +79,20 @@ class ProfileAvatar extends StatelessWidget {
     );
   }
 
+  Widget _buildImage() {
+    final image = _hasImage();
+    if (image != null) {
+      return Image(
+        image: image,
+        width: radius * 2,
+        height: radius * 2,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => _buildInitial(),
+      );
+    }
+    return _buildInitial();
+  }
+
   Widget _buildInitial() {
     return Center(
       child: Text(
@@ -99,10 +106,10 @@ class ProfileAvatar extends StatelessWidget {
     );
   }
 
-  ImageProvider? _resolveImage() {
+  ImageProvider? _hasImage() {
     if (photoUrl == null || photoUrl!.isEmpty) return null;
     if (photoUrl!.startsWith('http')) {
-      return NetworkImage(photoUrl!);
+      return CachedNetworkImageProvider(photoUrl!);
     }
     return FileImage(File(photoUrl!));
   }

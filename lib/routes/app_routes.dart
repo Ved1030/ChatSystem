@@ -7,6 +7,7 @@ import '../screens/home/home_screen.dart';
 import '../screens/profile/edit_profile_screen.dart';
 import '../screens/profile/profile_screen.dart';
 import '../screens/search/search_screen.dart';
+import '../screens/settings/notification_settings_screen.dart';
 import '../screens/settings/settings_screen.dart';
 import '../screens/splash/splash_screen.dart';
 
@@ -20,16 +21,18 @@ class AppRoutes {
   static const String profile = '/profile';
   static const String editProfile = '/edit-profile';
   static const String settings = '/settings';
+  static const String notificationSettings = '/notification-settings';
 
   static Map<String, WidgetBuilder> routes = {
-    splash: (_) => const SplashScreen(),
-    login: (_) => const LoginScreen(),
-    register: (_) => const RegisterScreen(),
-    home: (_) => const HomeScreen(),
-    search: (_) => const SearchScreen(),
-    profile: (_) => const ProfileScreen(),
-    editProfile: (_) => const EditProfileScreen(),
-    settings: (_) => const SettingsScreen(),
+    splash: (_) => SplashScreen(),
+    login: (_) => LoginScreen(),
+    register: (_) => RegisterScreen(),
+    home: (_) => HomeScreen(),
+    search: (_) => SearchScreen(),
+    profile: (_) => ProfileScreen(),
+    editProfile: (_) => EditProfileScreen(),
+    settings: (_) => SettingsScreen(),
+    notificationSettings: (_) => NotificationSettingsScreen(),
   };
 
   static Route<dynamic> onGenerateRoute(RouteSettings routeSettings) {
@@ -41,6 +44,7 @@ class AppRoutes {
             receiverId: args['receiverId'] as String,
             receiverName: args['receiverName'] as String,
             receiverPhotoUrl: args['receiverPhotoUrl'] as String?,
+            initialChatRoomId: args['initialChatRoomId'] as String?,
           ),
         );
       default:

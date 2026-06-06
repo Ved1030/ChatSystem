@@ -71,7 +71,9 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
             currentUser?.blockedUsers.contains(widget.receiverId) ?? false;
         _currentWallpaper = room?.wallpaper;
         _currentNickname = room?.nicknames[widget.receiverId];
-        _isMuted = room?.mutedBy.contains(currentUid) ?? false;
+        final mutedUntil = room?.mutedUntil[currentUid];
+        _isMuted = room?.mutedBy.contains(currentUid) ?? false ||
+            (mutedUntil != null && mutedUntil.isAfter(DateTime.now()));
         _isLoading = false;
       });
     }
@@ -365,30 +367,186 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
     }
   }
 
-  Future<void> _toggleMute() async {
+  Future<void> _showMuteOptions() async {
     final currentUid = FirebaseAuth.instance.currentUser!.uid;
     final room = await _chatRepository.getChatRoom(widget.chatRoomId);
     final mutedBy = List<String>.from(room?.mutedBy ?? []);
-    final isCurrentlyMuted = mutedBy.contains(currentUid);
+    final mutedUntil = Map<String, DateTime>.from(room?.mutedUntil ?? {});
+    final mutedUntilDate = mutedUntil[currentUid];
+    final isCurrentlyMuted = mutedBy.contains(currentUid) ||
+        (mutedUntilDate != null && mutedUntilDate.isAfter(DateTime.now()));
 
     if (isCurrentlyMuted) {
-      mutedBy.remove(currentUid);
-    } else {
-      mutedBy.add(currentUid);
+      await _unmuteChat(currentUid);
+      return;
     }
 
-    await _chatRepository.updateChatRoom(widget.chatRoomId, {
-      'mutedBy': mutedBy,
-    });
+    if (!mounted) return;
 
-    if (mounted) {
-      setState(() => _isMuted = !isCurrentlyMuted);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            isCurrentlyMuted ? 'Notifications unmuted' : 'Notifications muted',
+    final result = await showModalBottomSheet<String>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.border,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Mute Notifications',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'You will not receive notifications for this chat',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF4CAF50).withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Icon(Icons.timer_outlined,
+                      color: Color(0xFF4CAF50)),
+                ),
+                title: const Text('8 Hours'),
+                onTap: () => Navigator.pop(ctx, '8h'),
+              ),
+              ListTile(
+                leading: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFF9800).withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child:
+                      const Icon(Icons.timer_outlined, color: Color(0xFFFF9800)),
+                ),
+                title: const Text('24 Hours'),
+                onTap: () => Navigator.pop(ctx, '24h'),
+              ),
+              ListTile(
+                leading: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2196F3).withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Icon(Icons.calendar_today_outlined,
+                      color: Color(0xFF2196F3)),
+                ),
+                title: const Text('7 Days'),
+                onTap: () => Navigator.pop(ctx, '7d'),
+              ),
+              ListTile(
+                leading: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF9C27B0).withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Icon(Icons.all_inclusive_rounded,
+                      color: Color(0xFF9C27B0)),
+                ),
+                title: const Text('Forever'),
+                onTap: () => Navigator.pop(ctx, 'forever'),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Icon(Icons.cancel_outlined, color: Colors.grey),
+                ),
+                title: const Text('Cancel'),
+                onTap: () => Navigator.pop(ctx),
+              ),
+            ],
           ),
         ),
+      ),
+    );
+
+    if (result == null || !mounted) return;
+
+    DateTime? until;
+    switch (result) {
+      case '8h':
+        until = DateTime.now().add(const Duration(hours: 8));
+        break;
+      case '24h':
+        until = DateTime.now().add(const Duration(hours: 24));
+        break;
+      case '7d':
+        until = DateTime.now().add(const Duration(days: 7));
+        break;
+      case 'forever':
+        break;
+    }
+
+    if (until != null) {
+      await _chatRepository.updateChatRoom(widget.chatRoomId, {
+        'mutedUntil.$currentUid': Timestamp.fromDate(until),
+      });
+    } else {
+      await _chatRepository.updateChatRoom(widget.chatRoomId, {
+        'mutedBy': FieldValue.arrayUnion([currentUid]),
+      });
+    }
+
+    if (mounted) {
+      setState(() => _isMuted = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Chat muted')),
+      );
+    }
+  }
+
+  Future<void> _unmuteChat(String currentUid) async {
+    final room = await _chatRepository.getChatRoom(widget.chatRoomId);
+    final mutedBy = List<String>.from(room?.mutedBy ?? []);
+    mutedBy.remove(currentUid);
+
+    final updates = <String, dynamic>{
+      'mutedBy': mutedBy,
+      'mutedUntil.$currentUid': FieldValue.delete(),
+    };
+
+    await _chatRepository.updateChatRoom(widget.chatRoomId, updates);
+
+    if (mounted) {
+      setState(() => _isMuted = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Notifications unmuted')),
       );
     }
   }
@@ -574,7 +732,7 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                   const SizedBox(height: 24),
                   _buildSectionHeader('Notifications'),
                   const SizedBox(height: 12),
-                  _buildToggleOption(
+                  _buildOption(
                     icon: _isMuted
                         ? Icons.notifications_off_rounded
                         : Icons.notifications_rounded,
@@ -583,8 +741,7 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
                     subtitle: _isMuted
                         ? 'Notifications are silenced'
                         : 'Receive message notifications',
-                    value: _isMuted,
-                    onChanged: (_) => _toggleMute(),
+                    onTap: _showMuteOptions,
                   ),
                   const SizedBox(height: 24),
                   _buildSectionHeader('Privacy & Support'),
@@ -756,62 +913,6 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
           ),
         ),
         onTap: onTap,
-      ),
-    );
-  }
-
-  Widget _buildToggleOption({
-    required IconData icon,
-    required Color color,
-    required String title,
-    required String subtitle,
-    required bool value,
-    required ValueChanged<bool> onChanged,
-  }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        leading: Container(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Icon(icon, color: color, size: 22),
-        ),
-        title: Text(
-          title,
-          style: const TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: 15,
-            color: AppColors.textPrimary,
-          ),
-        ),
-        subtitle: Text(
-          subtitle,
-          style: TextStyle(
-            color: AppColors.textSecondary.withValues(alpha: 0.8),
-            fontSize: 13,
-          ),
-        ),
-        trailing: Switch(
-          value: value,
-          activeTrackColor: AppColors.primary.withValues(alpha: 0.4),
-          activeThumbColor: AppColors.primary,
-          onChanged: onChanged,
-        ),
       ),
     );
   }

@@ -3,15 +3,21 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/utils/date_formatter.dart';
 import '../../models/message_model.dart';
 import '../../repositories/chat_repository.dart';
 import '../../repositories/user_repository.dart';
+import '../../services/media_cleanup_service.dart';
+import '../../services/notification_service.dart';
+import '../../services/supabase_storage_service.dart';
+import '../../services/typing_service.dart';
 import '../../widgets/message_bubble.dart';
 import '../../widgets/online_status.dart';
 import '../../widgets/profile_avatar.dart';
+import '../../widgets/typing_indicator.dart';
 import 'chat_info_screen.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -41,6 +47,9 @@ class _ChatScreenState extends State<ChatScreen> {
   final ScrollController _scrollController = ScrollController();
   final ChatRepository _chatRepository = ChatRepository();
   final UserRepository _userRepository = UserRepository();
+  final SupabaseStorageService _storageService = SupabaseStorageService();
+  final ImagePicker _imagePicker = ImagePicker();
+  final MediaCleanupService _cleanupService = MediaCleanupService();
 
   String? _chatRoomId;
   String? _receiverUsername;
@@ -50,6 +59,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _hasMarkedRead = false;
   String? _wallpaper;
   String? _nickname;
+  bool _isSending = false;
 
   List<MessageModel> _messages = [];
   final Set<String> _processedStatusIds = {};
@@ -57,11 +67,17 @@ class _ChatScreenState extends State<ChatScreen> {
   StreamSubscription<DocumentSnapshot>? _roomSub;
   StreamSubscription<DocumentSnapshot>? _userSub;
 
+  final TypingService _typingService = TypingService();
+  bool _isOtherTyping = false;
+  StreamSubscription<bool>? _typingSub;
+  Timer? _typingDebounce;
+
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
     _initialize();
+    _cleanupService.startPeriodicCleanup();
   }
 
   @override
@@ -71,6 +87,10 @@ class _ChatScreenState extends State<ChatScreen> {
     _messagesSub?.cancel();
     _roomSub?.cancel();
     _userSub?.cancel();
+    _typingSub?.cancel();
+    _typingService.dispose();
+    _typingDebounce?.cancel();
+    _cleanupService.stopCleanup();
     super.dispose();
   }
 
@@ -79,7 +99,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final distanceFromBottom =
         _scrollController.position.maxScrollExtent -
         _scrollController.position.pixels;
-    final isNearBottom = distanceFromBottom < 150;
+    final isNearBottom = distanceFromBottom < 200;
     if (isNearBottom != _isNearBottom) {
       _isNearBottom = isNearBottom;
     }
@@ -117,6 +137,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _listenToRoom();
         _listenToUser();
         _listenToMessages();
+        _setupTypingListener();
 
         await _chatRepository.markAllMessagesAsRead(
           chatRoomId,
@@ -177,14 +198,16 @@ class _ChatScreenState extends State<ChatScreen> {
   void _listenToMessages() {
     if (_chatRoomId == null) return;
     final currentUid = FirebaseAuth.instance.currentUser!.uid;
+    final wasNearBottom = _isNearBottom;
 
     _messagesSub?.cancel();
     _messagesSub = _chatRepository
         .messagesStream(_chatRoomId!, currentUid, clearedAt: _clearedAt)
         .listen((messages) {
           final wasEmpty = _messages.isEmpty;
-          final prevCount = _messages.length;
+          final prevLastMsgId = _messages.isNotEmpty ? _messages.last.id : null;
 
+          if (!mounted) return;
           setState(() {
             _messages = messages;
           });
@@ -198,6 +221,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     _chatRoomId!,
                     msg.id!,
                     'delivered',
+                    setDeliveredAt: true,
                   );
                 } else if (_hasMarkedRead && msg.status != 'read') {
                   _chatRepository.updateMessageStatus(
@@ -210,20 +234,17 @@ class _ChatScreenState extends State<ChatScreen> {
             }
           }
 
-          if (wasEmpty && messages.isNotEmpty) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (_scrollController.hasClients) {
-                _scrollController.jumpTo(
-                  _scrollController.position.maxScrollExtent,
-                );
-              }
-            });
-          } else if (messages.length > prevCount && _isNearBottom) {
+          final shouldScroll = wasEmpty && messages.isNotEmpty ||
+              (messages.isNotEmpty &&
+                  messages.last.id != prevLastMsgId &&
+                  wasNearBottom);
+
+          if (shouldScroll) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (_scrollController.hasClients) {
                 _scrollController.animateTo(
                   _scrollController.position.maxScrollExtent,
-                  duration: const Duration(milliseconds: 300),
+                  duration: const Duration(milliseconds: 200),
                   curve: Curves.easeOut,
                 );
               }
@@ -232,9 +253,36 @@ class _ChatScreenState extends State<ChatScreen> {
         });
   }
 
+  void _setupTypingListener() {
+    if (_chatRoomId == null) return;
+    _typingSub?.cancel();
+    _typingSub = _typingService
+        .typingStream(_chatRoomId!, widget.receiverId)
+        .listen((isTyping) {
+      if (mounted) {
+        setState(() => _isOtherTyping = isTyping);
+      }
+    });
+  }
+
+  void _onMessageTextChanged(String value) {
+    if (_chatRoomId == null) return;
+    final currentUid = FirebaseAuth.instance.currentUser!.uid;
+    if (value.isNotEmpty) {
+      _typingService.startTyping(_chatRoomId!, currentUid);
+      _typingDebounce?.cancel();
+      _typingDebounce = Timer(const Duration(seconds: 3), () {
+        _typingService.stopTyping(_chatRoomId!, currentUid);
+      });
+    } else {
+      _typingService.stopTyping(_chatRoomId!, currentUid);
+      _typingDebounce?.cancel();
+    }
+  }
+
   Future<void> _sendMessage() async {
     final text = _messageController.text.trim();
-    if (text.isEmpty || _chatRoomId == null) return;
+    if (text.isEmpty || _chatRoomId == null || _isSending) return;
 
     final currentUid = FirebaseAuth.instance.currentUser!.uid;
 
@@ -255,6 +303,11 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     _messageController.clear();
+    if (_chatRoomId != null) {
+      _typingService.stopTyping(_chatRoomId!, FirebaseAuth.instance.currentUser!.uid);
+    }
+
+    if (mounted) setState(() => _isSending = true);
 
     await _chatRepository.sendMessage(
       chatRoomId: _chatRoomId!,
@@ -262,6 +315,16 @@ class _ChatScreenState extends State<ChatScreen> {
       receiverId: widget.receiverId,
       text: text,
     );
+
+    NotificationService().notifyBackend(
+      senderId: currentUid,
+      receiverId: widget.receiverId,
+      roomId: _chatRoomId!,
+      message: text,
+      messageType: 'text',
+    );
+
+    if (mounted) setState(() => _isSending = false);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
@@ -272,6 +335,264 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       }
     });
+  }
+
+  Future<void> _showAttachmentSheet() async {
+    final result = await showModalBottomSheet<String>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.border,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Send Photo',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _attachmentOption(
+                    ctx,
+                    icon: Icons.camera_alt_rounded,
+                    label: 'Camera',
+                    value: 'camera',
+                    color: AppColors.primary,
+                  ),
+                  _attachmentOption(
+                    ctx,
+                    icon: Icons.photo_library_rounded,
+                    label: 'Gallery',
+                    value: 'gallery',
+                    color: const Color(0xFFF0B5B5),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (result == null || !mounted) return;
+
+    final XFile? picked = await _imagePicker.pickImage(
+      source: result == 'camera' ? ImageSource.camera : ImageSource.gallery,
+      imageQuality: 85,
+      maxWidth: 1920,
+      maxHeight: 1920,
+    );
+
+    if (picked == null || !mounted) return;
+
+    _showSendAsOptions(picked.path);
+  }
+
+  Widget _attachmentOption(
+    BuildContext ctx, {
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    return GestureDetector(
+      onTap: () => Navigator.pop(ctx, value),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Icon(icon, color: color, size: 28),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showSendAsOptions(String imagePath) async {
+    if (!mounted) return;
+
+    final mode = await showModalBottomSheet<String>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.border,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Send As',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              ListTile(
+                leading: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Icon(
+                    Icons.image_rounded,
+                    color: AppColors.primary,
+                  ),
+                ),
+                title: const Text('Normal Image'),
+                subtitle: const Text('Never auto deletes'),
+                onTap: () => Navigator.pop(ctx, 'normal'),
+              ),
+              ListTile(
+                leading: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Icon(
+                    Icons.timer_outlined,
+                    color: Colors.orange,
+                  ),
+                ),
+                title: const Text('Delete After 36 Hours'),
+                subtitle: const Text('Auto removes after 36 hours'),
+                onTap: () => Navigator.pop(ctx, 'temporary'),
+              ),
+              ListTile(
+                leading: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Icon(
+                    Icons.visibility_off_rounded,
+                    color: Colors.red,
+                  ),
+                ),
+                title: const Text('View Once'),
+                subtitle: const Text('Disappears after viewing'),
+                onTap: () => Navigator.pop(ctx, 'view_once'),
+              ),
+              const ListTile(
+                leading: Icon(Icons.cancel_outlined),
+                title: Text('Cancel'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (mode == null || !mounted || _chatRoomId == null) return;
+
+    setState(() => _isSending = true);
+
+    try {
+      final currentUid = FirebaseAuth.instance.currentUser!.uid;
+      final messageId = DateTime.now().millisecondsSinceEpoch.toString();
+
+      final mediaUrl = await _storageService.uploadChatImage(
+        _chatRoomId!,
+        messageId,
+        imagePath,
+      );
+
+      DateTime? expiresAt;
+      if (mode == 'temporary') {
+        expiresAt = DateTime.now().add(const Duration(hours: 36));
+      }
+
+      await _chatRepository.sendMessage(
+        chatRoomId: _chatRoomId!,
+        senderId: currentUid,
+        receiverId: widget.receiverId,
+        text: mode == 'view_once' ? 'View Once Image' : 'Image',
+        messageType: 'image',
+        imageMode: mode,
+        mediaUrl: mediaUrl,
+        expiresAt: expiresAt,
+      );
+
+      NotificationService().notifyBackend(
+        senderId: currentUid,
+        receiverId: widget.receiverId,
+        roomId: _chatRoomId!,
+        message: mode == 'view_once' ? 'View Once Image' : 'Image',
+        messageType: 'image',
+      );
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          );
+        }
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to send image: $e')),
+        );
+      }
+    }
+
+    if (mounted) {
+      setState(() => _isSending = false);
+    }
   }
 
   Future<void> _onMessageLongPress(MessageModel message) async {
@@ -323,7 +644,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ),
               const Divider(height: 1),
-              if (isMyMessage)
+              if (isMyMessage && !message.isViewOnce)
                 ListTile(
                   leading: const Icon(Icons.delete, color: AppColors.error),
                   title: const Text('Delete for Everyone'),
@@ -394,6 +715,15 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
               const SizedBox(height: 16),
               _infoRow('Sent', DateFormatter.formatTime(message.timestamp)),
+              const SizedBox(height: 8),
+              _infoRow(
+                'Delivered',
+                message.deliveredAt != null
+                    ? DateFormatter.formatSeenTime(message.deliveredAt!)
+                    : (message.status == 'delivered' || message.status == 'read'
+                        ? 'Delivered'
+                        : 'Not yet delivered'),
+              ),
               const SizedBox(height: 8),
               _infoRow(
                 'Seen',
@@ -498,6 +828,20 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  Future<void> _handleViewOnceOpened(MessageModel message) async {
+    if (_chatRoomId == null || message.id == null || message.mediaUrl == null) {
+      return;
+    }
+
+    try {
+      await _cleanupService.handleViewOnceImageOpened(
+        chatRoomId: _chatRoomId!,
+        messageId: message.id!,
+        mediaUrl: message.mediaUrl!,
+      );
+    } catch (_) {}
+  }
+
   @override
   Widget build(BuildContext context) {
     final displayName = _nickname ?? widget.receiverName;
@@ -562,7 +906,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   ],
                 ],
               ),
-              _buildOnlineStatus(),
+              _buildSubtitle(),
             ],
           ),
         ],
@@ -579,8 +923,24 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _buildOnlineStatus() {
+  Widget _buildSubtitle() {
+    if (_isOtherTyping) {
+      return TypingIndicator(
+        userName: _nickname ?? widget.receiverName,
+        isTyping: true,
+      );
+    }
     return _OnlineStatusWidget(receiverId: widget.receiverId);
+  }
+
+  void _scrollToBottom() {
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
+    }
   }
 
   Widget _buildBody() {
@@ -602,7 +962,41 @@ class _ChatScreenState extends State<ChatScreen> {
 
     return Column(
       children: [
-        Expanded(child: _buildMessagesList()),
+        Expanded(
+          child: Stack(
+            children: [
+              _buildMessagesList(),
+              if (_messages.isNotEmpty && !_isNearBottom)
+                Positioned(
+                  bottom: 16,
+                  right: 16,
+                  child: GestureDetector(
+                    onTap: _scrollToBottom,
+                    child: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.primary.withValues(alpha: 0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.keyboard_arrow_down_rounded,
+                        color: Colors.white,
+                        size: 24,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
         _buildMessageInput(),
       ],
     );
@@ -661,16 +1055,11 @@ class _ChatScreenState extends State<ChatScreen> {
         itemCount: _messages.length,
         itemBuilder: (context, index) {
           final msg = _messages[index];
-          return GestureDetector(
+          return MessageBubble(
+            message: msg,
+            isMe: msg.senderId == currentUid,
             onLongPress: () => _onMessageLongPress(msg),
-            child: MessageBubble(
-              message: msg.text,
-              isMe: msg.senderId == currentUid,
-              timestamp: msg.timestamp,
-              isDeleted: msg.isDeleted,
-              status: msg.status,
-              readAt: msg.readAt,
-            ),
+            onViewOnceOpened: () => _handleViewOnceOpened(msg),
           );
         },
       ),
@@ -718,7 +1107,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildMessageInput() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
       decoration: BoxDecoration(
         color: AppColors.surface,
         boxShadow: [
@@ -733,7 +1122,29 @@ class _ChatScreenState extends State<ChatScreen> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            const SizedBox(width: 4),
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: IconButton(
+                onPressed: _isSending ? null : _showAttachmentSheet,
+                icon: _isSending
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(
+                        Icons.add_rounded,
+                        color: AppColors.primary,
+                        size: 22,
+                      ),
+              ),
+            ),
+            const SizedBox(width: 8),
             Expanded(
               child: Container(
                 decoration: BoxDecoration(
@@ -747,6 +1158,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   controller: _messageController,
                   minLines: 1,
                   maxLines: 5,
+                  onChanged: _onMessageTextChanged,
                   decoration: const InputDecoration(
                     hintText: 'Type a message...',
                     border: InputBorder.none,
@@ -774,7 +1186,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 ],
               ),
               child: IconButton(
-                onPressed: _sendMessage,
+                onPressed: _isSending ? null : _sendMessage,
                 icon: const Icon(
                   Icons.send_rounded,
                   color: Colors.white,

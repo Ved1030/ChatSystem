@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../providers/auth_provider.dart';
 import '../auth/login_screen.dart';
+import 'notification_settings_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -36,6 +37,24 @@ class SettingsScreen extends StatelessWidget {
             ),
             child: Column(
               children: [
+                ListTile(
+                  leading: const CircleAvatar(
+                    backgroundColor: Color(0xFF4CAF50),
+                    child: Icon(Icons.notifications, color: Colors.white),
+                  ),
+                  title: const Text('Notifications'),
+                  subtitle: const Text('Message notification settings'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const NotificationSettingsScreen(),
+                      ),
+                    );
+                  },
+                ),
+                const Divider(height: 0, indent: 72),
                 ListTile(
                   leading: const CircleAvatar(
                     backgroundColor: Colors.green,

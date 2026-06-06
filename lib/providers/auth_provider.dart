@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/user_model.dart';
 import '../repositories/auth_repository.dart';
 import '../repositories/user_repository.dart';
+import '../services/notification_service.dart';
 
 class AuthProvider extends ChangeNotifier {
   final AuthRepository _authRepository = AuthRepository();
@@ -42,6 +43,7 @@ class AuthProvider extends ChangeNotifier {
     try {
       final userModel = await _userRepository.getUser(firebaseUser.uid);
       if (userModel == null) {
+        final fcmToken = NotificationService().currentToken;
         _user = UserModel(
           uid: firebaseUser.uid,
           name: firebaseUser.displayName ?? '',
@@ -49,11 +51,13 @@ class AuthProvider extends ChangeNotifier {
           email: firebaseUser.email ?? '',
           photoUrl: firebaseUser.photoURL,
           isOnline: true,
+          fcmToken: fcmToken,
         );
         await _userRepository.createUser(_user!);
       } else {
         _user = userModel;
         await _userRepository.updateOnlineStatus(firebaseUser.uid, true);
+        _updateFcmToken(firebaseUser.uid);
       }
     } catch (e) {
       _user = null;
@@ -62,7 +66,23 @@ class AuthProvider extends ChangeNotifier {
     _isLoading = false;
     _isLoadingUser = false;
     _isInitialized = true;
+    _setupFcmTokenListener();
     notifyListeners();
+  }
+
+  void _setupFcmTokenListener() {
+    NotificationService().onTokenChanged = (String newToken) {
+      if (_user != null) {
+        _userRepository.updateUser(_user!.uid, {'fcmToken': newToken});
+      }
+    };
+  }
+
+  Future<void> _updateFcmToken(String uid) async {
+    final token = NotificationService().currentToken;
+    if (token != null) {
+      await _userRepository.updateUser(uid, {'fcmToken': token});
+    }
   }
 
   void _onAuthStateChanged(User? firebaseUser) async {
@@ -102,6 +122,7 @@ class AuthProvider extends ChangeNotifier {
         password: password,
       );
 
+      final fcmToken = NotificationService().currentToken;
       _user = UserModel(
         uid: credential.user!.uid,
         name: name,
@@ -109,6 +130,7 @@ class AuthProvider extends ChangeNotifier {
         email: email,
         createdAt: DateTime.now(),
         isOnline: true,
+        fcmToken: fcmToken,
       );
       await _userRepository.createUser(_user!);
       _isLoading = false;
@@ -138,6 +160,7 @@ class AuthProvider extends ChangeNotifier {
       _user = await _userRepository.getUser(credential.user!.uid);
       if (_user != null) {
         await _userRepository.updateOnlineStatus(_user!.uid, true);
+        _updateFcmToken(_user!.uid);
       }
       _isLoading = false;
       notifyListeners();
@@ -175,6 +198,7 @@ class AuthProvider extends ChangeNotifier {
         await _userRepository.createUser(_user!);
       } else {
         await _userRepository.updateOnlineStatus(_user!.uid, true);
+        _updateFcmToken(_user!.uid);
       }
 
       _isLoading = false;

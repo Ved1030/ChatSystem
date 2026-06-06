@@ -47,17 +47,23 @@ exports.sendMessageNotification = functions.firestore
         return null;
       }
 
+      const dataPayload = {
+        type: "new_message",
+        chatRoomId: roomId,
+        roomId: roomId,
+        senderId: senderId,
+        receiverId: receiverId,
+        messageId: context.params.messageId,
+        click_action: "FLUTTER_NOTIFICATION_CLICK",
+      };
+
       const payload = {
         token: receiverFcmToken,
         notification: {
           title: `New Message from ${senderName}`,
           body: messageText,
         },
-        data: {
-          chatRoomId: roomId,
-          senderId: senderId,
-          click_action: "FLUTTER_NOTIFICATION_CLICK",
-        },
+        data: dataPayload,
         android: {
           priority: "high",
           notification: {
@@ -72,6 +78,7 @@ exports.sendMessageNotification = functions.firestore
             aps: {
               sound: "default",
               badge: 1,
+              contentAvailable: true,
               alert: {
                 title: `New Message from ${senderName}`,
                 body: messageText,
@@ -83,6 +90,7 @@ exports.sendMessageNotification = functions.firestore
 
       const response = await admin.messaging().send(payload);
       console.log("Notification sent successfully:", response);
+
       return response;
     } catch (error) {
       console.error("Error sending notification:", error);

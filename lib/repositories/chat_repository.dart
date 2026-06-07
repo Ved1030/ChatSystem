@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_database/firebase_database.dart';
 
 import '../models/album_model.dart';
 import '../models/chat_model.dart';
@@ -84,6 +85,12 @@ class ChatRepository {
       final sender = FirebaseAuth.instance.currentUser;
       if (sender == null) return;
       if (senderId == receiverId) return;
+
+      final statusSnap = await FirebaseDatabase.instance
+          .ref('status/$receiverId/isOnline')
+          .get();
+      final isOnline = statusSnap.value as bool? ?? false;
+      if (isOnline) return;
 
       final [userSnap, roomSnap] = await Future.wait([
         FirebaseFirestore.instance.collection('users').doc(receiverId).get(),

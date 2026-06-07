@@ -41,15 +41,18 @@ app.get('/', (req, res) => {
   });
 });
 
-app.use((err, req, res, next) => {
-  logger.error('Unhandled error:', err);
-  res.status(500).json({ error: 'Internal server error' });
-});
-
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
 app.use('/api', notificationRoutes);
+
+// ---------------------------------------------------------------------------
+// Error handler (must be after routes)
+// ---------------------------------------------------------------------------
+app.use((err, req, res, next) => {
+  logger.error('Unhandled error:', err);
+  res.status(500).json({ error: 'Internal server error' });
+});
 
 // ---------------------------------------------------------------------------
 // Bootstrap

@@ -8,6 +8,18 @@
         ".write": "auth.uid === $uid",
         ".validate": "newData.hasChildren(['isOnline', 'lastSeen']) && newData.child('isOnline').isBoolean() && newData.child('lastSeen').isNumber()"
       }
+    },
+    "typing": {
+      "$roomId": {
+        "$userId": {
+          ".read": "auth != null",
+          ".write": "auth.uid === $userId",
+          ".validate": "newData.isBoolean()"
+        }
+      }
+    }
+  }
+}
     }
   }
 }

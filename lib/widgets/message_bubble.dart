@@ -235,9 +235,9 @@ class _MessageBubbleState extends State<MessageBubble>
               replyText,
               style: TextStyle(
                 fontSize: 12,
-                color: isMe
-                    ? Colors.white.withValues(alpha: 0.5)
-                    : AppColors.textSecondary,
+              color: isMe
+                  ? Colors.white70
+                  : AppColors.textSecondary,
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,

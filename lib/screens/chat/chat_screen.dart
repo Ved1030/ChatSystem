@@ -61,6 +61,7 @@ class _ChatScreenState extends State<ChatScreen> {
   String? _wallpaper;
   String? _nickname;
   bool _isSending = false;
+  bool _initialAutoScrollDone = false;
 
   MessageModel? _replyToMessage;
   String? _highlightedMessageId;
@@ -254,16 +255,14 @@ class _ChatScreenState extends State<ChatScreen> {
             _messages = messages;
           });
 
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _updateNearBottom();
-          });
-
-          final shouldScroll = wasEmpty && messages.isNotEmpty ||
-              (messages.isNotEmpty &&
-                  messages.last.id != prevLastMsgId &&
-                  wasNearBottom);
+          final shouldScroll = messages.isNotEmpty && (
+            !_initialAutoScrollDone ||
+            wasEmpty ||
+            (messages.last.id != prevLastMsgId && wasNearBottom)
+          );
 
           if (shouldScroll) {
+            _initialAutoScrollDone = true;
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (_scrollController.hasClients) {
                 _scrollController.animateTo(
@@ -274,6 +273,10 @@ class _ChatScreenState extends State<ChatScreen> {
               }
             });
           }
+
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _updateNearBottom();
+          });
         });
   }
 
@@ -903,6 +906,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     if (mounted && clearedTs != _clearedAt) {
       setState(() => _clearedAt = clearedTs);
+      _initialAutoScrollDone = false;
       _listenToMessages();
     }
   }

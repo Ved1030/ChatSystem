@@ -4,8 +4,10 @@ import 'package:firebase_database/firebase_database.dart';
 
 import '../models/album_model.dart';
 import '../models/chat_model.dart';
+import '../models/media_model.dart';
 import '../models/message_model.dart';
 import '../models/plan_model.dart';
+import '../core/constants/supabase_constants.dart';
 import '../services/firestore_service.dart';
 import '../services/notification_api_service.dart';
 import '../services/supabase_storage_service.dart';
@@ -146,6 +148,19 @@ class ChatRepository {
   Future<void> deleteMessageForEveryone(String chatRoomId, String messageId) =>
       _firestoreService.deleteMessageForEveryone(chatRoomId, messageId);
 
+  Future<void> deleteChatImageForEveryone(
+    String chatRoomId,
+    String messageId,
+    String mediaUrl,
+  ) async {
+    final storage = SupabaseStorageService();
+    final path = storage.extractStoragePath(mediaUrl, SupabaseConstants.chatImagesBucket);
+    if (path != null) {
+      await storage.deleteFile(SupabaseConstants.chatImagesBucket, path);
+    }
+    await _firestoreService.deleteMessageForEveryone(chatRoomId, messageId);
+  }
+
   Future<void> deleteMessageForMe(
     String chatRoomId,
     String messageId,
@@ -245,8 +260,11 @@ class ChatRepository {
   Future<ChatRoomModel?> getChatRoom(String chatRoomId) =>
       _firestoreService.getChatRoom(chatRoomId);
 
-  Stream<List<String>> chatMediaStream(String chatRoomId) =>
-      _firestoreService.chatMediaStream(chatRoomId);
+  Stream<List<MediaItem>> chatMediaStream(
+    String chatRoomId,
+    String currentUid,
+  ) =>
+      _firestoreService.chatMediaStream(chatRoomId, currentUid);
 
   Stream<int> unreadCountStream(
     String chatRoomId,

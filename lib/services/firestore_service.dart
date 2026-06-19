@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../core/constants/firebase_constants.dart';
 import '../models/album_model.dart';
 import '../models/chat_model.dart';
+import '../models/media_model.dart';
 import '../models/message_model.dart';
 import '../models/plan_model.dart';
 import '../models/user_model.dart';
@@ -428,17 +429,22 @@ class FirestoreService {
     ).update({'${FirebaseConstants.unreadCounts}.$currentUid': 0});
   }
 
-  Stream<List<String>> chatMediaStream(String chatRoomId) {
+  Stream<List<MediaItem>> chatMediaStream(
+    String chatRoomId,
+    String currentUid,
+  ) {
     return messagesRef(chatRoomId)
         .orderBy(FirebaseConstants.timestamp, descending: true)
         .snapshots()
         .map((snapshot) {
-          final urls = <String>[];
+          final items = <MediaItem>[];
           for (final doc in snapshot.docs) {
             final data = doc.data() as Map<String, dynamic>;
             final messageType = data['messageType'] as String?;
             final imageMode = data['imageMode'] as String?;
+            final isDeleted = data['isDeleted'] as bool? ?? false;
 
+            if (isDeleted) continue;
             if (imageMode == 'view_once') continue;
             if (imageMode == 'temporary') {
               final expiresAt =
@@ -448,19 +454,36 @@ class FirestoreService {
               }
             }
 
+            final deletedFor = List<String>.from(data['deletedForUsers'] as List? ?? []);
+            if (deletedFor.contains(currentUid)) continue;
+
             if (messageType == 'image') {
               final mediaUrl = data['mediaUrl'] as String?;
-              if (mediaUrl != null && mediaUrl.isNotEmpty && !urls.contains(mediaUrl)) {
-                urls.add(mediaUrl);
+              if (mediaUrl != null && mediaUrl.isNotEmpty) {
+                final alreadyAdded = items.any((item) => item.url == mediaUrl);
+                if (!alreadyAdded) {
+                  items.add(MediaItem(
+                    url: mediaUrl,
+                    messageId: doc.id,
+                    senderId: data['senderId'] as String? ?? '',
+                  ));
+                }
               }
             } else {
               final text = data['text'] as String? ?? '';
-              if (_isImageUrl(text) && !urls.contains(text)) {
-                urls.add(text);
+              if (_isImageUrl(text)) {
+                final alreadyAdded = items.any((item) => item.url == text);
+                if (!alreadyAdded) {
+                  items.add(MediaItem(
+                    url: text,
+                    messageId: doc.id,
+                    senderId: data['senderId'] as String? ?? '',
+                  ));
+                }
               }
             }
           }
-          return urls;
+          return items;
         });
   }
 

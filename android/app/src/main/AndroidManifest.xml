@@ -38,6 +38,9 @@
             android:name="onesignal_notification_channel_id"
             android:value="chat_messages" />
         <meta-data
+            android:name="onesignal_notification_channel_name"
+            android:value="Chat Messages" />
+        <meta-data
             android:name="onesignal_notification_icon"
             android:resource="@mipmap/ic_launcher" />
     </application>

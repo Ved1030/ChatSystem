@@ -95,6 +95,9 @@ class _AppWithLifecycleState extends State<_AppWithLifecycle>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      notificationService.requestNotificationPermission();
+    });
   }
 
   @override

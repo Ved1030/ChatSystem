@@ -28,14 +28,13 @@ class NotificationService {
     if (_isInitialized) return;
     _navigatorKey = navigatorKey;
 
-    OneSignal.initialize(_appId);
-    await _requestPermission();
+    await OneSignal.initialize(_appId);
     _setupListeners();
     _isInitialized = true;
   }
 
-  Future<void> _requestPermission() async {
-    await OneSignal.Notifications.requestPermission(true);
+  Future<bool> requestNotificationPermission() async {
+    return OneSignal.Notifications.requestPermission(true);
   }
 
   void _setupListeners() {
@@ -117,7 +116,7 @@ class NotificationService {
 
   Future<void> _saveOneSignalId(String uid) async {
     String? id = oneSignalId;
-    for (int i = 0; i < 10 && id == null; i++) {
+    for (int i = 0; i < 25 && id == null; i++) {
       await Future.delayed(const Duration(milliseconds: 200));
       id = oneSignalId;
     }
